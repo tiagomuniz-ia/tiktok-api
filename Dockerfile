@@ -4,6 +4,7 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1
 ENV DISPLAY=:99
 ENV TZ=America/Sao_Paulo
+ENV PATH="/usr/local/bin:${PATH}"
 
 # Instala dependências do sistema necessárias
 RUN apt-get update && apt-get install -y \
@@ -42,8 +43,22 @@ WORKDIR /app
 # Copia os arquivos do projeto
 COPY . /app/
 
-# Instala as dependências Python
-RUN pip install --no-cache-dir flask==3.1.0 flask-cors==5.0.1 selenium==4.18.1 undetected-chromedriver==3.5.5 requests==2.31.0 packaging==23.2 setuptools==69.0.3 websockets==12.0 webdriver-manager==4.0.1
+# Instala pip atualizado
+RUN python -m pip install --upgrade pip
+
+# Instala cada pacote separadamente para facilitar diagnóstico
+RUN pip install flask==3.1.0 && \
+    pip install flask-cors==5.0.1 && \
+    pip install selenium==4.18.1 && \
+    pip install undetected-chromedriver==3.5.5 && \
+    pip install requests==2.31.0 && \
+    pip install packaging==23.2 && \
+    pip install setuptools==69.0.3 && \
+    pip install websockets==12.0 && \
+    pip install webdriver-manager==4.0.1
+
+# Verifica se o Flask foi instalado corretamente
+RUN python -m pip list | grep flask
 
 # Configura o timezone
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
@@ -51,8 +66,26 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 # Cria diretório de configuração para o Chrome
 RUN mkdir -p /app/.config/chromium /app/.cache
 
-# Script de inicialização simples
-RUN echo '#!/bin/bash\nXvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &\nsleep 2\npython api.py' > /app/start.sh \
+# Script de inicialização com diagnóstico
+RUN echo '#!/bin/bash\n\
+echo "Iniciando diagnóstico..."\n\
+echo "Python path:"\n\
+which python\n\
+echo "Python version:"\n\
+python --version\n\
+echo "Verificando pacotes instalados:"\n\
+pip list\n\
+echo "Verificando se Flask está instalado:"\n\
+python -c "import flask; print(f\"Flask version: {flask.__version__}\")" || echo "FLASK NOT FOUND!"\n\
+echo "Iniciando Xvfb..."\n\
+Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &\n\
+sleep 2\n\
+echo "Tentando instalar Flask novamente para garantir:"\n\
+pip install -v flask==3.1.0 flask-cors==5.0.1\n\
+echo "Verificando novamente se Flask está instalado:"\n\
+python -c "import flask; print(f\"Flask version: {flask.__version__}\")" || echo "FLASK STILL NOT FOUND!"\n\
+echo "Iniciando API..."\n\
+python api.py\n' > /app/start.sh \
     && chmod +x /app/start.sh
 
 # Expõe a porta da API
