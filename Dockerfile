@@ -43,7 +43,7 @@ WORKDIR /app
 COPY . /app/
 
 # Instala as dependências Python
-RUN pip install --no-cache-dir flask==3.1.1 flask-cors==5.0.1 selenium==4.18.1 undetected-chromedriver==3.5.5 requests==2.31.0 packaging==23.2 setuptools==69.0.3 websockets==12.0 webdriver-manager==4.0.1
+RUN pip install --no-cache-dir flask==3.1.0 flask-cors==5.0.1 selenium==4.18.1 undetected-chromedriver==3.5.5 requests==2.31.0 packaging==23.2 setuptools==69.0.3 websockets==12.0 webdriver-manager==4.0.1
 
 # Configura o timezone
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
