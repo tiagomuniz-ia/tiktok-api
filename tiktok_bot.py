@@ -72,12 +72,6 @@ class TikTokBot:
             self.driver.get('about:blank')
             time.sleep(1)
             
-            # Executa script para definir localStorage e sessionStorage
-            self.driver.execute_script("""
-                window.localStorage.clear();
-                window.sessionStorage.clear();
-            """)
-            
             # Limpa todos os cookies atuais
             self.driver.delete_all_cookies()
             
