@@ -109,57 +109,91 @@ class TikTokBot:
         try:
             if not self.driver:
                 return False
+
+            print("🔄 Iniciando injeção de cookies...")
                 
             # Primeiro acessa o TikTok para garantir que o domínio está correto
             self.driver.get('https://www.tiktok.com')
-            time.sleep(5)  # Aumentado para 5 segundos
-            
-            # Adiciona cookies essenciais
+            time.sleep(5)
+
+            # Define os cookies com todos os atributos necessários
             cookies = [
                 {
                     'name': 'sessionid',
                     'value': self.session_id,
                     'domain': '.tiktok.com',
-                    'path': '/'
+                    'path': '/',
+                    'secure': True,
+                    'httpOnly': True,
+                    'sameSite': 'Lax'
                 },
                 {
                     'name': 'sessionid_ss',
                     'value': self.session_id,
                     'domain': '.tiktok.com',
-                    'path': '/'
+                    'path': '/',
+                    'secure': True,
+                    'httpOnly': True,
+                    'sameSite': 'Lax'
                 },
                 {
                     'name': 'sid_tt',
-                    'value': self.sid_tt,  # Usando o sid_tt fornecido
+                    'value': self.sid_tt,
                     'domain': '.tiktok.com',
-                    'path': '/'
+                    'path': '/',
+                    'secure': True,
+                    'httpOnly': True,
+                    'sameSite': 'Lax'
+                },
+                {
+                    'name': 'tt_chain_token',
+                    'value': '',  # Valor vazio é normal
+                    'domain': '.tiktok.com',
+                    'path': '/',
+                    'secure': True,
+                    'sameSite': 'Lax'
                 }
             ]
+
+            # Limpa cookies existentes
+            self.driver.delete_all_cookies()
+            time.sleep(1)
             
-            # Adiciona cada cookie
+            # Adiciona cada cookie com tratamento de erro individual
+            cookies_added = 0
             for cookie in cookies:
                 try:
+                    print(f"🍪 Adicionando cookie: {cookie['name']}")
                     self.driver.add_cookie(cookie)
-                    time.sleep(1)  # Pequena pausa entre cada cookie
+                    cookies_added += 1
+                    time.sleep(1)
                 except Exception as cookie_error:
-                    print(f"⚠️ Aviso ao adicionar cookie {cookie['name']}: {cookie_error}")
+                    print(f"⚠️ Erro ao adicionar cookie {cookie['name']}: {cookie_error}")
+                    # Continua mesmo se um cookie falhar
+                    continue
+            
+            print(f"✅ {cookies_added} cookies adicionados com sucesso")
             
             # Aguarda mais tempo após adicionar os cookies
-            time.sleep(5)
+            time.sleep(3)
             
             # Recarrega a página
+            print("🔄 Recarregando página para aplicar cookies...")
             self.driver.refresh()
-            time.sleep(5)  # Aguarda a página recarregar completamente
+            time.sleep(5)
             
             # Verifica se os cookies foram adicionados corretamente
             actual_cookies = self.driver.get_cookies()
             session_cookies = [c for c in actual_cookies if c['name'] in ['sessionid', 'sessionid_ss', 'sid_tt']]
             
-            if not session_cookies:
-                print("❌ Cookies de sessão não foram encontrados após a injeção")
+            print(f"ℹ️ Cookies encontrados após injeção: {[c['name'] for c in session_cookies]}")
+            
+            if len(session_cookies) >= 2:  # Precisamos de pelo menos 2 cookies principais
+                print("✅ Cookies de sessão verificados com sucesso")
+                return True
+            else:
+                print("❌ Número insuficiente de cookies de sessão encontrados")
                 return False
-                
-            return True
             
         except Exception as e:
             print(f"❌ Erro ao injetar sessão: {e}")
