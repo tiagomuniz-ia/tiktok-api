@@ -1,82 +1,78 @@
 #!/bin/bash
-# Script para executar o TikTok Bot em modo servidor
 
-# Variáveis
-MODE="run"  # Modo padrão
-SESSION_ID=""
-VALIDATE_ONLY=false
+# Script para executar a API TikTok Poster em ambiente de servidor
+# Autor: Usuário
+# Data: 2023
 
-# Função de ajuda
-show_help() {
-    echo "Uso: $0 [opções]"
-    echo
-    echo "Opções:"
-    echo "  -v, --validate SESSION_ID    Apenas valida o SESSION_ID sem postar vídeo"
-    echo "  -h, --help                   Mostra esta mensagem de ajuda"
-    echo
-    echo "Exemplos:"
-    echo "  $0                           Executa o bot normalmente"
-    echo "  $0 -v abc123                 Valida se o session_id 'abc123' é válido"
-}
+# Cores para output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
-# Processa parâmetros
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        -v|--validate)
-            VALIDATE_ONLY=true
-            SESSION_ID="$2"
-            shift 2
-            ;;
-        -h|--help)
-            show_help
-            exit 0
-            ;;
-        *)
-            echo "Opção desconhecida: $1"
-            show_help
-            exit 1
-            ;;
-    esac
-done
+echo -e "${BLUE}=== TikTok Poster API - Setup de Servidor ===${NC}"
 
-# Verifica se as dependências estão instaladas
-if ! command -v python3 &> /dev/null; then
-    echo "❌ Python 3 não está instalado. Instalando..."
-    apt-get update && apt-get install -y python3 python3-pip
-fi
-
-if ! command -v google-chrome &> /dev/null; then
-    echo "❌ Google Chrome não está instalado. Instalando..."
-    wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -
-    echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list
-    apt-get update
-    apt-get install -y google-chrome-stable
-fi
-
-# Instala pacotes necessários para o display virtual
-if ! pip3 show pyvirtualdisplay &> /dev/null; then
-    echo "📦 Instalando PyVirtualDisplay..."
-    apt-get install -y xvfb
-    pip3 install pyvirtualdisplay
-fi
-
-# Instala outras dependências Python
-echo "📦 Instalando dependências Python..."
-pip3 install -r requirements.txt
-
-# Executa o modo escolhido
-if [ "$VALIDATE_ONLY" = true ]; then
-    if [ -z "$SESSION_ID" ]; then
-        echo "❌ Erro: SESSION_ID não fornecido para validação"
-        show_help
+# Verifica se Xvfb está instalado
+if ! command -v Xvfb &> /dev/null; then
+    echo -e "${YELLOW}Xvfb não encontrado. Instalando...${NC}"
+    sudo apt-get update
+    sudo apt-get install -y xvfb x11-utils
+    
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Falha ao instalar Xvfb. Por favor, instale manualmente.${NC}"
         exit 1
     fi
-    
-    echo "🔍 Executando validação de sessão..."
-    python3 validate_session.py "$SESSION_ID"
-else
-    echo "🚀 Executando TikTok Bot em modo servidor..."
-    python3 tiktok_bot.py server
 fi
 
-echo "✅ Execução concluída!" 
+# Verifica se Chrome está instalado
+if ! command -v google-chrome-stable &> /dev/null; then
+    echo -e "${YELLOW}Google Chrome não encontrado. Instalando...${NC}"
+    wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+    echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google.list
+    sudo apt-get update
+    sudo apt-get install -y google-chrome-stable
+    
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Falha ao instalar Google Chrome. Por favor, instale manualmente.${NC}"
+        exit 1
+    fi
+fi
+
+# Configura o display virtual
+export DISPLAY=:99
+Xvfb :99 -screen 0 1920x1080x24 -ac &
+XVFB_PID=$!
+
+echo -e "${GREEN}Display virtual iniciado: DISPLAY=:99 (PID: $XVFB_PID)${NC}"
+
+# Verifica ambiente Python
+if ! command -v python3 &> /dev/null; then
+    echo -e "${RED}Python 3 não encontrado. Por favor, instale Python 3.${NC}"
+    exit 1
+fi
+
+# Instala dependências Python
+echo -e "${BLUE}Instalando dependências Python...${NC}"
+pip install -r requirements.txt
+
+if [ $? -ne 0 ]; then
+    echo -e "${RED}Falha ao instalar dependências Python.${NC}"
+    exit 1
+fi
+
+# Inicia a API
+echo -e "${GREEN}Iniciando a API TikTok Poster...${NC}"
+echo -e "${YELLOW}A API estará disponível em: http://localhost:3090${NC}"
+
+# Opção: usar Gunicorn em produção
+if [ "$1" == "--production" ]; then
+    echo -e "${BLUE}Modo de produção: usando Gunicorn${NC}"
+    gunicorn --bind 0.0.0.0:3090 --workers 1 --threads 2 'api:app'
+else
+    # Modo de desenvolvimento
+    python3 api.py
+fi
+
+# Limpa recursos
+kill $XVFB_PID 

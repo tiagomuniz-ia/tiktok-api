@@ -1,150 +1,154 @@
-# Bot TikTok
+# TikTok Poster API
 
-Este bot automatiza a publicação de vídeos no TikTok.
+API para automação de postagem de vídeos no TikTok, projetada para funcionar em ambientes de servidor.
 
 ## Requisitos
 
 - Python 3.8+
 - Google Chrome
-- Acesso à Internet
-- Conta TikTok com cookies de sessão válidos
+- Xvfb (para servidores Linux)
+- Dependências do Python listadas em `requirements.txt`
 
 ## Instalação
 
-### Windows
+### Em servidor Linux (Debian/Ubuntu)
 
-1. Instale o Python 3.8 ou superior
-2. Instale o Google Chrome
-3. Instale as dependências Python:
+1. Instale as dependências do sistema:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y wget gnupg2 xvfb python3-pip python3-venv
+```
+
+2. Instale o Google Chrome:
+
+```bash
+wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google.list
+sudo apt-get update
+sudo apt-get install -y google-chrome-stable
+```
+
+3. Clone o repositório ou copie os arquivos para o servidor
+
+4. Instale as dependências Python:
+
 ```bash
 pip install -r requirements.txt
 ```
 
-### Servidor Linux
+## Execução
 
-1. Dê permissão de execução ao script:
+### Método 1: Script auxiliar
+
+Use o script auxiliar para iniciar automaticamente a API com as configurações corretas:
+
 ```bash
 chmod +x run_server.sh
+./run_server.sh
 ```
 
-2. Execute o script como root:
-```bash
-sudo ./run_server.sh
-```
-
-Este script irá:
-- Instalar Python 3 (se necessário)
-- Instalar Google Chrome (se necessário)
-- Instalar Xvfb e PyVirtualDisplay
-- Instalar as dependências Python
-- Executar o bot em modo servidor
-
-## Uso
-
-### Windows (Ambiente de desenvolvimento)
-
-Edite os parâmetros no arquivo `tiktok_bot.py` (ou importe a classe para seu código) e execute:
+Para modo de produção com Gunicorn:
 
 ```bash
-python tiktok_bot.py
+./run_server.sh --production
 ```
 
-### Servidor Linux
+### Método 2: Docker
+
+Construa e execute o contêiner Docker:
 
 ```bash
-python tiktok_bot.py server
+docker build -t tiktok-poster-api .
+docker run -p 3090:3090 tiktok-poster-api
 ```
 
-## Gerenciamento de Sessão
+### Método 3: Manual
 
-### Gerar uma Nova Sessão
-
-Se você precisar obter um novo `session_id` do TikTok:
-
-#### Windows
-```bash
-refresh_session.cmd
-```
-
-#### Linux
-```bash
-python refresh_session.py seu_usuario sua_senha
-```
-
-Este processo:
-1. Abre um navegador Chrome
-2. Navega até a página de login do TikTok
-3. Preenche seus dados
-4. Aguarda que você complete qualquer captcha ou verificação
-5. Extrai os cookies de sessão após o login bem-sucedido
-6. Salva os detalhes em `tiktok_session.json`
-
-### Validar uma Sessão Existente
-
-Antes de tentar postar um vídeo, é recomendável validar se o session_id do TikTok está funcionando corretamente:
-
-#### Windows
+1. Inicie o display virtual:
 
 ```bash
-validate_session.cmd YOUR_SESSION_ID
+export DISPLAY=:99
+Xvfb :99 -screen 0 1920x1080x24 -ac &
 ```
 
-#### Linux
+2. Inicie a API:
 
 ```bash
-./run_server.sh -v YOUR_SESSION_ID
+python api.py
 ```
 
-Ou diretamente:
+## Uso da API
 
-```bash
-python validate_session.py YOUR_SESSION_ID
-```
+### Endpoint principal: POST /post-video
 
-Isso verificará se a sessão é válida e exibirá informações sobre a conta, se disponíveis.
+Exemplo de payload:
 
-## Parâmetros de Configuração
-
-```python
-params = {
-    'session_id': 'seu_session_id_tiktok',  # Obrigatório
-    'sid_tt': 'seu_sid_tt_tiktok',          # Opcional (usa session_id como padrão)
-    'video_url': 'url_do_video_para_upload',
-    'video_caption': 'legenda do vídeo',
-    'hashtags': ['hashtag1', 'hashtag2'],
-    'music_name': 'nome da música para pesquisar',
-    'music_volume': 50  # 0-100
+```json
+{
+  "session_id": "sua_session_id_do_tiktok",
+  "sid_tt": "seu_sid_tt_opcional",
+  "video_url": "https://exemplo.com/seu-video.mp4",
+  "video_caption": "Legenda do seu vídeo",
+  "hashtags": ["hashtag1", "hashtag2"],
+  "music_name": "Nome da música a pesquisar",
+  "music_volume": 50,
+  "headless": true,
+  "wait_time_multiplier": 1.5,
+  "use_proxy": false,
+  "proxy": null
 }
 ```
 
-## Troubleshooting
+#### Parâmetros obrigatórios:
+- `session_id`: ID de sessão do TikTok (cookie)
+- `video_url`: URL do vídeo a ser postado
 
-### Problemas com Cookies
+#### Parâmetros opcionais:
+- `sid_tt`: Cookie sid_tt do TikTok (se não informado, usa session_id)
+- `video_caption`: Legenda do vídeo
+- `hashtags`: Lista de hashtags (sem o #)
+- `music_name`: Nome da música para pesquisar
+- `music_volume`: Volume da música (0-100)
+- `headless`: Se deve executar em modo headless (recomendado true para servidores)
+- `wait_time_multiplier`: Multiplicador de tempo de espera (útil para servidores com latência)
+- `use_proxy`: Se deve usar proxy
+- `proxy`: URL do proxy (ex: "http://user:pass@host:port")
 
-Certifique-se de fornecer um `session_id` válido do TikTok. Você pode obtê-lo:
-1. Manualmente:
-   - Faça login no TikTok em seu navegador
-   - Abra as Ferramentas de Desenvolvedor (F12)
-   - Vá para a aba "Aplicativo" ou "Storage" > Cookies
-   - Encontre o cookie `sessionid`
+### Endpoint de verificação: GET /health
 
-2. Automaticamente:
-   - Use o script `refresh_session.py` para gerar uma nova sessão
+Use para verificar se a API está funcionando e obter informações sobre o ambiente.
 
-### Erro "Session injection failed"
+## Solução de problemas
 
-Se encontrar este erro:
-1. Verifique se o `session_id` está correto usando o script de validação
-2. Certifique-se de que o TikTok não está bloqueando o acesso do IP do servidor
-3. Tente gerar um novo `session_id` fazendo login novamente no TikTok
+### Problemas com Xvfb
 
-### Compatibilidade de Versões
+Se estiver tendo problemas com o display virtual:
 
-Se encontrar problemas com o ChromeDriver, modifique esta linha no código:
-```python
-self.driver = uc.Chrome(options=options, version_main=135, headless=False)
+```bash
+# Verificar se Xvfb está rodando
+ps aux | grep Xvfb
+
+# Reiniciar display virtual
+pkill Xvfb
+export DISPLAY=:99
+Xvfb :99 -screen 0 1920x1080x24 -ac &
 ```
 
-Substitua o número 135 pela versão principal do seu Chrome:
-- Chrome 135.x.x.x → use 135
-- Chrome 114.x.x.x → use 114 
+### Chrome trava ou falha ao iniciar
+
+Verifique se todas as dependências do Chrome estão instaladas:
+
+```bash
+sudo apt-get install -y fonts-liberation libasound2 libatk-bridge2.0-0 libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 libexpat1 libfontconfig1 libgbm1 libgcc1 libglib2.0-0 libgtk-3-0 libnspr4 libnss3 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxss1 libxtst6 lsb-release xdg-utils
+```
+
+### Problemas com a API
+
+Verifique os logs para mais detalhes sobre erros específicos.
+
+## Notas
+
+- A API usa técnicas avançadas para evitar detecção de automação
+- Cookie de sessão do TikTok geralmente expira após alguns dias
+- Use proxies residenciais para melhorar as taxas de sucesso em servidores 
