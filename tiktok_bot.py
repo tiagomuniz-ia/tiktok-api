@@ -69,9 +69,9 @@ class TikTokBot:
             if not self.driver:
                 return False
                 
-            # Primeiro acessa o TikTok para garantir que o domínio está correto
-            self.driver.get('https://www.tiktok.com')
-            time.sleep(5)  # Aumentado para 5 segundos
+            # Primeiro acessa um subdomínio do TikTok
+            self.driver.get('https://www.tiktok.com/blank')
+            time.sleep(2)
             
             # Adiciona cookies essenciais
             cookies = [
@@ -89,7 +89,7 @@ class TikTokBot:
                 },
                 {
                     'name': 'sid_tt',
-                    'value': self.sid_tt,  # Usando o sid_tt fornecido
+                    'value': self.sid_tt,
                     'domain': '.tiktok.com',
                     'path': '/'
                 }
@@ -99,27 +99,16 @@ class TikTokBot:
             for cookie in cookies:
                 try:
                     self.driver.add_cookie(cookie)
-                    time.sleep(1)  # Pequena pausa entre cada cookie
                 except Exception as cookie_error:
                     print(f"⚠️ Aviso ao adicionar cookie {cookie['name']}: {cookie_error}")
+                    return False  # Retorna False se falhar ao adicionar qualquer cookie
             
-            # Aguarda mais tempo após adicionar os cookies
-            time.sleep(5)
+            # Navega para a página principal após adicionar os cookies
+            self.driver.get('https://www.tiktok.com')
+            time.sleep(3)
             
-            # Recarrega a página
-            self.driver.refresh()
-            time.sleep(5)  # Aguarda a página recarregar completamente
-            
-            # Verifica se os cookies foram adicionados corretamente
-            actual_cookies = self.driver.get_cookies()
-            session_cookies = [c for c in actual_cookies if c['name'] in ['sessionid', 'sessionid_ss', 'sid_tt']]
-            
-            if not session_cookies:
-                print("❌ Cookies de sessão não foram encontrados após a injeção")
-                return False
-                
             return True
-            
+                
         except Exception as e:
             print(f"❌ Erro ao injetar sessão: {e}")
             return False
