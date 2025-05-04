@@ -74,15 +74,21 @@ class TikTokBot:
         """Configura o navegador com as opções necessárias para evitar detecção"""
         try:
             options = uc.ChromeOptions()
+            
+            # Configurações básicas
             options.add_argument('--disable-blink-features=AutomationControlled')
             options.add_argument('--disable-dev-shm-usage')
             options.add_argument('--no-sandbox')
             options.add_argument('--window-size=1920,1080')
+            
+            # Configurações de headless
+            options.add_argument('--headless=new')  # Novo formato headless
+            options.add_argument('--disable-gpu')  # Necessário para headless
+            options.add_argument('--disable-software-rasterizer')
+            
+            # Configurações adicionais de segurança
             options.add_argument('--disable-infobars')
             options.add_argument('--disable-notifications')
-            options.add_argument('--disable-gpu')
-            options.add_argument('--disable-software-rasterizer')
-            options.add_argument('--headless=new')  # Novo formato headless
             options.add_argument('--disable-setuid-sandbox')
             options.add_argument('--disable-web-security')
             
@@ -97,7 +103,6 @@ class TikTokBot:
             self.driver = uc.Chrome(
                 options=options, 
                 version_main=135,
-                headless=True,
                 use_subprocess=True,
                 seleniumwire_options={
                     'verify_ssl': False
