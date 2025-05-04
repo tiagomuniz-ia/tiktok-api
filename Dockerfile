@@ -14,6 +14,9 @@ WORKDIR /app
 # Copia os arquivos
 COPY . .
 
+# Atualiza pip e instala setuptools primeiro
+RUN pip install --no-cache-dir --upgrade pip setuptools
+
 # Instala dependências Python
 RUN pip install --no-cache-dir -r requirements.txt
 
