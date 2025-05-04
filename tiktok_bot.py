@@ -5,10 +5,6 @@ import random
 import requests
 import tempfile
 import json
-import logging
-import os
-import sys
-from datetime import datetime
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -16,169 +12,111 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 from difflib import SequenceMatcher
 
-# Configuração do sistema de logs
-def setup_logging():
-    """Configura o sistema de logging"""
-    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
-    os.makedirs(log_dir, exist_ok=True)
-    
-    log_file = os.path.join(log_dir, f'tiktok_bot_{datetime.now().strftime("%Y%m%d")}.log')
-    
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s [%(levelname)s] %(message)s',
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-    return logging.getLogger(__name__)
-
-logger = setup_logging()
-
 class TikTokBot:
     def __init__(self, params):
         """
         Inicializa o bot com os parâmetros recebidos
         params: dicionário com os parâmetros da API
         """
-        try:
-            if not params:
-                raise ValueError("Parâmetros não podem ser nulos")
-                
-            self.session_id = params['session_id']
-            self.sid_tt = params.get('sid_tt', self.session_id)
-            self.video_url = params['video_url']
-            self.video_caption = params.get('video_caption', '')
-            self.hashtags = params.get('hashtags', [])
-            self.music_name = params.get('music_name', '')
-            self.music_volume = int(params.get('music_volume', 50))
+        if not params:
+            raise ValueError("Parâmetros não podem ser nulos")
             
-            self.driver = None
-            self.temp_files = []  # Lista para rastrear arquivos temporários
-            
-            logger.info(f"Bot inicializado com sucesso. Video URL: {self.video_url}")
-            self.setup_browser()
-        except Exception as e:
-            logger.error(f"Erro na inicialização do bot: {str(e)}")
-            raise
+        self.session_id = params['session_id']
+        self.sid_tt = params.get('sid_tt', self.session_id)  # Usa session_id como fallback
+        self.video_url = params['video_url']
+        self.video_caption = params.get('video_caption', '')
+        self.hashtags = params.get('hashtags', [])
+        self.music_name = params.get('music_name', '')
+        self.music_volume = int(params.get('music_volume', 50))
+        
+        self.driver = None
+        self.setup_browser()
 
     def setup_browser(self):
         """Configura o navegador com as opções necessárias para evitar detecção"""
         try:
             options = uc.ChromeOptions()
-            
-            # Configurações base anti-detecção
             options.add_argument('--disable-blink-features=AutomationControlled')
             options.add_argument('--disable-dev-shm-usage')
             options.add_argument('--no-sandbox')
             options.add_argument('--window-size=1920,1080')
-            options.add_argument('--start-maximized')
             options.add_argument('--disable-infobars')
             options.add_argument('--disable-notifications')
-            options.add_argument('--disable-gpu')
             
-            # Configurações específicas para ambiente de servidor
-            options.add_argument('--headless=new')
-            options.add_argument('--disable-software-rasterizer')
-            options.add_argument('--disable-extensions')
+            # Adiciona um user agent aleatório
+            user_agents = [
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
+            ]
+            options.add_argument(f'user-agent={random.choice(user_agents)}')
             
-            # Configurações de memória e performance
-            options.add_argument('--memory-pressure-off')
-            options.add_argument('--disable-setuid-sandbox')
-            options.add_argument('--disable-dev-shm-usage')
-            options.add_argument('--no-first-run')
-            options.add_argument('--no-service-autorun')
-            options.add_argument('--password-store=basic')
-            
-            # Configurações para evitar problemas de permissão
-            options.add_argument('--disable-site-isolation-trials')
-            
-            # User agent específico para Linux
-            options.add_argument('user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36')
-            
-            # Configurações específicas para Linux
-            if 'linux' in sys.platform:
-                options.binary_location = '/usr/bin/google-chrome'
-                options.add_argument('--no-zygote')
-            
-            # Iniciando Chrome
-            self.driver = uc.Chrome(options=options, version_main=136)
-            
-            # Configurações adicionais após inicialização
-            self.driver.set_window_size(1920, 1080)
-            self.driver.set_page_load_timeout(30)
-            
-            # Configurações CDP para permissões
-            self.driver.execute_cdp_cmd('Page.setPermissions', {
-                'origin': 'https://www.tiktok.com',
-                'permissions': ['notifications']
-            })
-            
-            logger.info("✅ Navegador iniciado com sucesso!")
+            # Iniciando Chrome sem modo headless
+            self.driver = uc.Chrome(options=options, version_main=135, headless=False)
+            print("✅ Navegador iniciado com sucesso!")
             return True
-            
         except Exception as e:
-            logger.error(f"❌ Erro ao configurar o navegador: {e}")
+            print(f"❌ Erro ao configurar o navegador: {e}")
             return False
-
+        
     def inject_session(self):
         """Injeta os cookies de sessão para autenticação"""
         try:
             if not self.driver:
                 return False
+                
+            # Primeiro acessa o TikTok para garantir que o domínio está correto
+            self.driver.get('https://www.tiktok.com')
+            time.sleep(5)  # Aumentado para 5 segundos
             
-            # Primeiro acessa uma página neutra para evitar problemas de redirecionamento
-            self.driver.get('about:blank')
-            time.sleep(2)
-            
-            # Configura os cookies antes de acessar o TikTok
-            cookies_script = """
-                function setCookie(name, value, domain, path) {
-                    document.cookie = `${name}=${value};domain=${domain};path=${path};secure;`;
-                }
-            """
-            
-            self.driver.execute_script(cookies_script)
-            
-            # Define os cookies um por um
+            # Adiciona cookies essenciais
             cookies = [
-                ('sessionid', self.session_id),
-                ('sessionid_ss', self.session_id),
-                ('sid_tt', self.sid_tt)
+                {
+                    'name': 'sessionid',
+                    'value': self.session_id,
+                    'domain': '.tiktok.com',
+                    'path': '/'
+                },
+                {
+                    'name': 'sessionid_ss',
+                    'value': self.session_id,
+                    'domain': '.tiktok.com',
+                    'path': '/'
+                },
+                {
+                    'name': 'sid_tt',
+                    'value': self.sid_tt,  # Usando o sid_tt fornecido
+                    'domain': '.tiktok.com',
+                    'path': '/'
+                }
             ]
             
-            for name, value in cookies:
-                script = f'setCookie("{name}", "{value}", ".tiktok.com", "/")'
-                self.driver.execute_script(script)
+            # Adiciona cada cookie
+            for cookie in cookies:
+                try:
+                    self.driver.add_cookie(cookie)
+                    time.sleep(1)  # Pequena pausa entre cada cookie
+                except Exception as cookie_error:
+                    print(f"⚠️ Aviso ao adicionar cookie {cookie['name']}: {cookie_error}")
             
-            # Agora acessa o TikTok
-            self.driver.get('https://www.tiktok.com')
+            # Aguarda mais tempo após adicionar os cookies
             time.sleep(5)
+            
+            # Recarrega a página
+            self.driver.refresh()
+            time.sleep(5)  # Aguarda a página recarregar completamente
             
             # Verifica se os cookies foram adicionados corretamente
             actual_cookies = self.driver.get_cookies()
             session_cookies = [c for c in actual_cookies if c['name'] in ['sessionid', 'sessionid_ss', 'sid_tt']]
             
             if not session_cookies:
-                logger.error("❌ Cookies de sessão não foram encontrados após a injeção")
+                print("❌ Cookies de sessão não foram encontrados após a injeção")
                 return False
-            
-            # Tenta acessar a página de upload diretamente para verificar a autenticação
-            self.driver.get('https://www.tiktok.com/tiktokstudio/upload')
-            time.sleep(5)
-            
-            # Verifica se fomos redirecionados para a página de login
-            current_url = self.driver.current_url.lower()
-            if 'login' in current_url or 'sign-in' in current_url:
-                logger.error("❌ Redirecionado para página de login após injeção de cookies")
-                return False
-            
-            logger.info("✅ Cookies injetados com sucesso")
+                
             return True
             
         except Exception as e:
-            logger.error(f"❌ Erro ao injetar sessão: {e}")
+            print(f"❌ Erro ao injetar sessão: {e}")
             return False
         
     def test_login(self):
@@ -230,14 +168,12 @@ class TikTokBot:
                     if chunk:
                         temp_file.write(chunk)
                 temp_file.close()
-                self.temp_files.append(temp_file.name)  # Adiciona à lista de arquivos temporários
-                logger.info(f"Vídeo baixado com sucesso para {temp_file.name}")
                 return temp_file.name
             else:
-                logger.error(f"Erro ao baixar vídeo. Status code: {response.status_code}")
+                print(f"❌ Erro ao baixar vídeo. Status code: {response.status_code}")
                 return None
         except Exception as e:
-            logger.error(f"Erro ao baixar vídeo: {e}")
+            print(f"❌ Erro ao baixar vídeo: {e}")
             return None
 
     def _clear_caption_field(self):
@@ -601,40 +537,14 @@ class TikTokBot:
         print("⌨️ Pressione Enter para fechar o navegador quando terminar...")
         input()
 
-    def cleanup(self):
-        """Limpa todos os recursos utilizados pelo bot"""
-        try:
-            # Fecha o navegador
-            if self.driver:
-                try:
-                    self.driver.quit()
-                    logger.info("Navegador fechado com sucesso")
-                except Exception as e:
-                    logger.error(f"Erro ao fechar navegador: {e}")
-
-            # Remove arquivos temporários
-            for temp_file in self.temp_files:
-                try:
-                    if os.path.exists(temp_file):
-                        os.unlink(temp_file)
-                        logger.info(f"Arquivo temporário removido: {temp_file}")
-                except Exception as e:
-                    logger.error(f"Erro ao remover arquivo temporário {temp_file}: {e}")
-
-            # Limpa a lista de arquivos temporários
-            self.temp_files.clear()
-            
-        except Exception as e:
-            logger.error(f"Erro durante limpeza: {e}")
-
-    def __del__(self):
-        """Destrutor da classe para garantir limpeza de recursos"""
-        self.cleanup()
-
     def close(self):
-        """Fecha o navegador e limpa recursos"""
-        self.cleanup()
-        logger.info("Bot fechado e recursos limpos com sucesso")
+        """Fecha o navegador"""
+        try:
+            if self.driver:
+                self.driver.quit()
+                print("✅ Navegador fechado com sucesso!")
+        except Exception as e:
+            print(f"❌ Erro ao fechar o navegador: {e}")
 
 if __name__ == "__main__":
     bot = None
