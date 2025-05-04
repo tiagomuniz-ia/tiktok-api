@@ -73,6 +73,7 @@ class TikTokBot:
             options.add_argument('--disable-dev-shm-usage')
             options.add_argument('--no-sandbox')
             options.add_argument('--window-size=1920,1080')
+            options.add_argument('--start-maximized')
             options.add_argument('--disable-infobars')
             options.add_argument('--disable-notifications')
             options.add_argument('--disable-gpu')
@@ -82,22 +83,19 @@ class TikTokBot:
             options.add_argument('--disable-software-rasterizer')
             options.add_argument('--disable-extensions')
             
-            # Configurações adicionais para resolver problemas de permissão
-            options.add_argument('--disable-web-security')
-            options.add_argument('--allow-running-insecure-content')
-            options.add_argument('--disable-features=IsolateOrigins,site-per-process')
-            
             # Configurações de memória e performance
             options.add_argument('--memory-pressure-off')
-            options.add_argument('--js-flags="--max-old-space-size=512"')
             options.add_argument('--disable-setuid-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument('--no-first-run')
+            options.add_argument('--no-service-autorun')
+            options.add_argument('--password-store=basic')
             
-            # Adiciona um user agent aleatório
-            user_agents = [
-                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
-            ]
-            options.add_argument(f'user-agent={random.choice(user_agents)}')
+            # Configurações para evitar problemas de permissão
+            options.add_argument('--disable-site-isolation-trials')
+            
+            # User agent específico para Linux
+            options.add_argument('user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36')
             
             # Configurações específicas para Linux
             if 'linux' in sys.platform:
@@ -111,7 +109,7 @@ class TikTokBot:
             self.driver.set_window_size(1920, 1080)
             self.driver.set_page_load_timeout(30)
             
-            # Desativa notificações JavaScript
+            # Configurações CDP para permissões
             self.driver.execute_cdp_cmd('Page.setPermissions', {
                 'origin': 'https://www.tiktok.com',
                 'permissions': ['notifications']
@@ -130,46 +128,32 @@ class TikTokBot:
             if not self.driver:
                 return False
             
-            # Primeiro acessa o TikTok para garantir que o domínio está correto
-            self.driver.get('https://www.tiktok.com')
-            time.sleep(5)
+            # Primeiro acessa uma página neutra para evitar problemas de redirecionamento
+            self.driver.get('about:blank')
+            time.sleep(2)
             
-            # Injeta os cookies usando JavaScript
-            cookies = [
-                {
-                    'name': 'sessionid',
-                    'value': self.session_id,
-                    'domain': '.tiktok.com',
-                    'path': '/'
-                },
-                {
-                    'name': 'sessionid_ss',
-                    'value': self.session_id,
-                    'domain': '.tiktok.com',
-                    'path': '/'
-                },
-                {
-                    'name': 'sid_tt',
-                    'value': self.sid_tt,
-                    'domain': '.tiktok.com',
-                    'path': '/'
+            # Configura os cookies antes de acessar o TikTok
+            cookies_script = """
+                function setCookie(name, value, domain, path) {
+                    document.cookie = `${name}=${value};domain=${domain};path=${path};secure;`;
                 }
+            """
+            
+            self.driver.execute_script(cookies_script)
+            
+            # Define os cookies um por um
+            cookies = [
+                ('sessionid', self.session_id),
+                ('sessionid_ss', self.session_id),
+                ('sid_tt', self.sid_tt)
             ]
             
-            # Adiciona cada cookie usando JavaScript
-            for cookie in cookies:
-                try:
-                    cookie_str = f"document.cookie = '{cookie['name']}={cookie['value']};domain={cookie['domain']};path={cookie['path']};'"
-                    self.driver.execute_script(cookie_str)
-                    time.sleep(1)
-                except Exception as cookie_error:
-                    logger.warning(f"⚠️ Aviso ao adicionar cookie {cookie['name']}: {cookie_error}")
+            for name, value in cookies:
+                script = f'setCookie("{name}", "{value}", ".tiktok.com", "/")'
+                self.driver.execute_script(script)
             
-            # Aguarda mais tempo após adicionar os cookies
-            time.sleep(5)
-            
-            # Recarrega a página
-            self.driver.refresh()
+            # Agora acessa o TikTok
+            self.driver.get('https://www.tiktok.com')
             time.sleep(5)
             
             # Verifica se os cookies foram adicionados corretamente
@@ -178,6 +162,16 @@ class TikTokBot:
             
             if not session_cookies:
                 logger.error("❌ Cookies de sessão não foram encontrados após a injeção")
+                return False
+            
+            # Tenta acessar a página de upload diretamente para verificar a autenticação
+            self.driver.get('https://www.tiktok.com/tiktokstudio/upload')
+            time.sleep(5)
+            
+            # Verifica se fomos redirecionados para a página de login
+            current_url = self.driver.current_url.lower()
+            if 'login' in current_url or 'sign-in' in current_url:
+                logger.error("❌ Redirecionado para página de login após injeção de cookies")
                 return False
             
             logger.info("✅ Cookies injetados com sucesso")
