@@ -5,6 +5,10 @@ import random
 import requests
 import tempfile
 import json
+import logging
+import os
+import sys
+from datetime import datetime
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -12,48 +16,102 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 from difflib import SequenceMatcher
 
+# Configuração do sistema de logs
+def setup_logging():
+    """Configura o sistema de logging"""
+    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    
+    log_file = os.path.join(log_dir, f'tiktok_bot_{datetime.now().strftime("%Y%m%d")}.log')
+    
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+    return logging.getLogger(__name__)
+
+logger = setup_logging()
+
 class TikTokBot:
     def __init__(self, params):
         """
         Inicializa o bot com os parâmetros recebidos
         params: dicionário com os parâmetros da API
         """
-        if not params:
-            raise ValueError("Parâmetros não podem ser nulos")
+        try:
+            if not params:
+                raise ValueError("Parâmetros não podem ser nulos")
+                
+            self.session_id = params['session_id']
+            self.sid_tt = params.get('sid_tt', self.session_id)
+            self.video_url = params['video_url']
+            self.video_caption = params.get('video_caption', '')
+            self.hashtags = params.get('hashtags', [])
+            self.music_name = params.get('music_name', '')
+            self.music_volume = int(params.get('music_volume', 50))
             
-        self.session_id = params['session_id']
-        self.sid_tt = params.get('sid_tt', self.session_id)  # Usa session_id como fallback
-        self.video_url = params['video_url']
-        self.video_caption = params.get('video_caption', '')
-        self.hashtags = params.get('hashtags', [])
-        self.music_name = params.get('music_name', '')
-        self.music_volume = int(params.get('music_volume', 50))
-        
-        self.driver = None
-        self.setup_browser()
+            self.driver = None
+            self.temp_files = []  # Lista para rastrear arquivos temporários
+            
+            logger.info(f"Bot inicializado com sucesso. Video URL: {self.video_url}")
+            self.setup_browser()
+        except Exception as e:
+            logger.error(f"Erro na inicialização do bot: {str(e)}")
+            raise
 
     def setup_browser(self):
         """Configura o navegador com as opções necessárias para evitar detecção"""
         try:
             options = uc.ChromeOptions()
+            
+            # Configurações base anti-detecção
             options.add_argument('--disable-blink-features=AutomationControlled')
             options.add_argument('--disable-dev-shm-usage')
             options.add_argument('--no-sandbox')
             options.add_argument('--window-size=1920,1080')
             options.add_argument('--disable-infobars')
             options.add_argument('--disable-notifications')
+            options.add_argument('--disable-gpu')  # Importante para servers Linux
+            
+            # Configurações específicas para ambiente de servidor
+            options.add_argument('--headless=new')  # Novo modo headless do Chrome
+            options.add_argument('--disable-software-rasterizer')
+            options.add_argument('--disable-extensions')
+            options.add_argument('--single-process')
+            options.add_argument('--remote-debugging-port=9222')
+            
+            # Configuração de memória para ambiente de servidor
+            options.add_argument('--memory-pressure-off')
+            options.add_argument('--js-flags="--max-old-space-size=512"')  # Limita uso de memória JavaScript
             
             # Adiciona um user agent aleatório
             user_agents = [
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
             ]
             options.add_argument(f'user-agent={random.choice(user_agents)}')
             
-            # Iniciando Chrome sem modo headless
-            self.driver = uc.Chrome(options=options, version_main=135, headless=False)
+            # Configurações adicionais para ambiente Linux
+            if 'linux' in sys.platform:
+                options.binary_location = '/usr/bin/google-chrome'
+                options.add_argument('--no-zygote')  # Evita processos zygote no Linux
+                options.add_argument('--disable-setuid-sandbox')
+            
+            # Iniciando Chrome em modo headless
+            self.driver = uc.Chrome(options=options, version_main=135)
+            
+            # Configuração adicional após inicialização
+            self.driver.set_window_size(1920, 1080)
+            self.driver.set_page_load_timeout(30)  # Timeout de 30 segundos para carregamento de página
+            
             print("✅ Navegador iniciado com sucesso!")
             return True
+            
         except Exception as e:
             print(f"❌ Erro ao configurar o navegador: {e}")
             return False
@@ -168,12 +226,14 @@ class TikTokBot:
                     if chunk:
                         temp_file.write(chunk)
                 temp_file.close()
+                self.temp_files.append(temp_file.name)  # Adiciona à lista de arquivos temporários
+                logger.info(f"Vídeo baixado com sucesso para {temp_file.name}")
                 return temp_file.name
             else:
-                print(f"❌ Erro ao baixar vídeo. Status code: {response.status_code}")
+                logger.error(f"Erro ao baixar vídeo. Status code: {response.status_code}")
                 return None
         except Exception as e:
-            print(f"❌ Erro ao baixar vídeo: {e}")
+            logger.error(f"Erro ao baixar vídeo: {e}")
             return None
 
     def _clear_caption_field(self):
@@ -537,14 +597,40 @@ class TikTokBot:
         print("⌨️ Pressione Enter para fechar o navegador quando terminar...")
         input()
 
-    def close(self):
-        """Fecha o navegador"""
+    def cleanup(self):
+        """Limpa todos os recursos utilizados pelo bot"""
         try:
+            # Fecha o navegador
             if self.driver:
-                self.driver.quit()
-                print("✅ Navegador fechado com sucesso!")
+                try:
+                    self.driver.quit()
+                    logger.info("Navegador fechado com sucesso")
+                except Exception as e:
+                    logger.error(f"Erro ao fechar navegador: {e}")
+
+            # Remove arquivos temporários
+            for temp_file in self.temp_files:
+                try:
+                    if os.path.exists(temp_file):
+                        os.unlink(temp_file)
+                        logger.info(f"Arquivo temporário removido: {temp_file}")
+                except Exception as e:
+                    logger.error(f"Erro ao remover arquivo temporário {temp_file}: {e}")
+
+            # Limpa a lista de arquivos temporários
+            self.temp_files.clear()
+            
         except Exception as e:
-            print(f"❌ Erro ao fechar o navegador: {e}")
+            logger.error(f"Erro durante limpeza: {e}")
+
+    def __del__(self):
+        """Destrutor da classe para garantir limpeza de recursos"""
+        self.cleanup()
+
+    def close(self):
+        """Fecha o navegador e limpa recursos"""
+        self.cleanup()
+        logger.info("Bot fechado e recursos limpos com sucesso")
 
 if __name__ == "__main__":
     bot = None
