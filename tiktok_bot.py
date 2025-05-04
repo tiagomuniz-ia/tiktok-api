@@ -5,361 +5,12 @@ import random
 import requests
 import tempfile
 import json
-import os
-import sys
-import platform
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 from difflib import SequenceMatcher
-import re
-from enum import Enum
-from datetime import datetime
-
-class AutomationBlockType(Enum):
-    """Enumera os diferentes tipos de bloqueios de automação"""
-    CAPTCHA_CHALLENGE = "captcha_challenge"
-    SUSPICIOUS_ACTIVITY = "suspicious_activity"
-    RATE_LIMIT = "rate_limit" 
-    IP_BLOCK = "ip_block"
-    BROWSER_FINGERPRINT = "browser_fingerprint"
-    SESSION_EXPIRED = "session_expired"
-    UNUSUAL_ACTIVITY = "unusual_activity"
-    UNKNOWN = "unknown"
-
-class DetectionResult:
-    """Armazena resultado de uma detecção de bloqueio"""
-    def __init__(self, is_blocked=False, block_type=AutomationBlockType.UNKNOWN, details=None, timestamp=None, screenshot_path=None):
-        self.is_blocked = is_blocked
-        self.block_type = block_type
-        self.details = details or {}
-        self.timestamp = timestamp or datetime.now()
-        self.screenshot_path = screenshot_path
-        
-    def __str__(self):
-        return f"DetectionResult(blocked={self.is_blocked}, type={self.block_type.value}, details={self.details})"
-        
-    def get_recommendations(self):
-        """Retorna recomendações baseadas no tipo de bloqueio"""
-        recommendations = {
-            AutomationBlockType.CAPTCHA_CHALLENGE: [
-                "Use um proxy residencial diferente",
-                "Reduza a frequência de solicitações",
-                "Tente uma sessão mais recente/nova"
-            ],
-            AutomationBlockType.SUSPICIOUS_ACTIVITY: [
-                "Modifique o user agent",
-                "Aumente os tempos de espera",
-                "Use um proxy residencial",
-                "Utilize uma nova sessão de usuário"
-            ],
-            AutomationBlockType.RATE_LIMIT: [
-                "Espere pelo menos 30 minutos antes de tentar novamente",
-                "Reduza a frequência de solicitações",
-                "Use um proxy diferente"
-            ],
-            AutomationBlockType.IP_BLOCK: [
-                "Mude para um proxy residencial",
-                "Tente uma VPN de consumidor (não de datacenter)",
-                "Espere 24 horas antes de usar o mesmo IP"
-            ],
-            AutomationBlockType.BROWSER_FINGERPRINT: [
-                "Modifique os parâmetros de evasão de fingerprinting",
-                "Atualize para uma versão mais recente do Chrome",
-                "Tente desabilitar WebGL ou Canvas fingerprinting"
-            ],
-            AutomationBlockType.SESSION_EXPIRED: [
-                "Obtenha um novo cookie de sessão",
-                "Faça login novamente através do navegador e capture os novos cookies"
-            ],
-            AutomationBlockType.UNUSUAL_ACTIVITY: [
-                "Reduza a velocidade das interações",
-                "Adicione comportamentos mais humanos",
-                "Varie o padrão de movimentos do mouse",
-                "Use um proxy residencial"
-            ],
-            AutomationBlockType.UNKNOWN: [
-                "Verifique os logs para mais detalhes",
-                "Capture screenshots para análise manual",
-                "Tente uma sessão e IP completamente novos"
-            ]
-        }
-        
-        return recommendations.get(self.block_type, recommendations[AutomationBlockType.UNKNOWN])
-
-class AutomationDetector:
-    """Classe para detectar bloqueios de automação no TikTok"""
-    
-    def __init__(self, driver, debug_dir=None):
-        self.driver = driver
-        self.debug_dir = debug_dir
-        self.last_detection = None
-        self.detection_history = []
-        
-        # Cria diretório de debug se fornecido
-        if debug_dir and not os.path.exists(debug_dir):
-            try:
-                os.makedirs(debug_dir)
-            except Exception as e:
-                print(f"⚠️ Não foi possível criar diretório de debug: {e}")
-    
-    def take_screenshot(self, name_prefix="detection"):
-        """Captura screenshot para análise posterior"""
-        if not self.debug_dir:
-            return None
-            
-        try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{name_prefix}_{timestamp}.png"
-            filepath = os.path.join(self.debug_dir, filename)
-            
-            self.driver.save_screenshot(filepath)
-            print(f"📸 Screenshot salvo: {filepath}")
-            return filepath
-        except Exception as e:
-            print(f"⚠️ Erro ao capturar screenshot: {e}")
-            return None
-    
-    def check_for_captcha(self):
-        """Verifica se há desafio de CAPTCHA na página"""
-        captcha_indicators = [
-            "//div[contains(text(), 'captcha') or contains(text(), 'CAPTCHA')]",
-            "//div[contains(@class, 'captcha')]",
-            "//iframe[contains(@src, 'captcha')]",
-            "//img[contains(@src, 'captcha')]",
-            "//div[contains(text(), 'verificação de segurança') or contains(text(), 'security check')]"
-        ]
-        
-        for indicator in captcha_indicators:
-            try:
-                elements = self.driver.find_elements(By.XPATH, indicator)
-                if elements and any(e.is_displayed() for e in elements):
-                    return True
-            except:
-                pass
-        
-        # Verifica no HTML da página
-        page_source = self.driver.page_source.lower()
-        captcha_terms = ['captcha', 'robot', 'human verification', 'security check', 
-                         'verificação', 'não é um robô', 'deslize para verificar']
-        
-        if any(term in page_source for term in captcha_terms):
-            return True
-            
-        return False
-    
-    def check_for_unusual_activity(self):
-        """Verifica se há mensagens de atividade suspeita"""
-        unusual_indicators = [
-            "//div[contains(text(), 'atividade suspeita') or contains(text(), 'suspicious activity')]",
-            "//div[contains(text(), 'comportamento incomum') or contains(text(), 'unusual behavior')]",
-            "//div[contains(text(), 'segurança') or contains(text(), 'security')]",
-            "//div[contains(text(), 'bloqueado') or contains(text(), 'blocked')]",
-            "//div[contains(text(), 'detectamos') or contains(text(), 'detected')]"
-        ]
-        
-        for indicator in unusual_indicators:
-            try:
-                elements = self.driver.find_elements(By.XPATH, indicator)
-                if elements and any(e.is_displayed() for e in elements):
-                    return True
-            except:
-                pass
-        
-        # Verifica no HTML da página
-        page_source = self.driver.page_source.lower()
-        unusual_terms = ['unusual activity', 'suspicious', 'atividade suspeita', 
-                         'security concern', 'blocked', 'bloqueado', 'try again later',
-                         'tente novamente mais tarde', 'temporarily restricted']
-        
-        if any(term in page_source for term in unusual_terms):
-            return True
-            
-        return False
-    
-    def check_for_session_issues(self):
-        """Verifica se há problemas com a sessão"""
-        session_indicators = [
-            "//div[contains(text(), 'sessão expirada') or contains(text(), 'session expired')]",
-            "//div[contains(text(), 'fazer login') or contains(text(), 'sign in')]",
-            "//div[contains(text(), 'não autorizado') or contains(text(), 'unauthorized')]",
-            "//button[contains(text(), 'Login') or contains(text(), 'Entrar')]"
-        ]
-        
-        for indicator in session_indicators:
-            try:
-                elements = self.driver.find_elements(By.XPATH, indicator)
-                if elements and any(e.is_displayed() for e in elements):
-                    return True
-            except:
-                pass
-        
-        # Verifica se fomos redirecionados para página de login
-        current_url = self.driver.current_url.lower()
-        login_patterns = ['/login', 'login', 'signin', 'sign-in', 'auth']
-        
-        if any(pattern in current_url for pattern in login_patterns):
-            return True
-            
-        return False
-    
-    def check_for_rate_limiting(self):
-        """Verifica se há sinais de rate limiting"""
-        rate_indicators = [
-            "//div[contains(text(), 'muitas solicitações') or contains(text(), 'too many requests')]",
-            "//div[contains(text(), 'tente novamente mais tarde') or contains(text(), 'try again later')]",
-            "//div[contains(text(), 'aguarde') or contains(text(), 'wait')]",
-            "//div[contains(text(), 'limite') or contains(text(), 'limit')]"
-        ]
-        
-        for indicator in rate_indicators:
-            try:
-                elements = self.driver.find_elements(By.XPATH, indicator)
-                if elements and any(e.is_displayed() for e in elements):
-                    return True
-            except:
-                pass
-        
-        # Verifica no HTML da página
-        page_source = self.driver.page_source.lower()
-        rate_terms = ['rate limit', 'too many requests', 'too many attempts', 
-                      'tente novamente mais tarde', 'try again later', '429']
-        
-        if any(term in page_source for term in rate_terms):
-            return True
-            
-        return False
-
-    def check_for_ip_block(self):
-        """Verifica se o IP foi bloqueado"""
-        ip_block_indicators = [
-            "//div[contains(text(), 'blocked') or contains(text(), 'bloqueado')]",
-            "//div[contains(text(), 'unavailable in your region') or contains(text(), 'indisponível na sua região')]",
-            "//div[contains(text(), 'access denied') or contains(text(), 'acesso negado')]"
-        ]
-        
-        for indicator in ip_block_indicators:
-            try:
-                elements = self.driver.find_elements(By.XPATH, indicator)
-                if elements and any(e.is_displayed() for e in elements):
-                    return True
-            except:
-                pass
-        
-        # Verifica no HTML da página
-        page_source = self.driver.page_source.lower()
-        ip_terms = ['ip address has been blocked', 'endereço ip foi bloqueado', 
-                    'network has been blocked', 'rede foi bloqueada', 
-                    'access from your location', 'acesso do seu local']
-        
-        if any(term in page_source for term in rate_terms):
-            return True
-            
-        return False
-    
-    def detect_automation_block(self):
-        """Método principal para detectar bloqueios, retorna um DetectionResult"""
-        # Captura um screenshot para análise
-        screenshot_path = self.take_screenshot("detection")
-        
-        # Verifica cada tipo de bloqueio
-        if self.check_for_captcha():
-            result = DetectionResult(
-                is_blocked=True,
-                block_type=AutomationBlockType.CAPTCHA_CHALLENGE,
-                details={"url": self.driver.current_url},
-                screenshot_path=screenshot_path
-            )
-        elif self.check_for_session_issues():
-            result = DetectionResult(
-                is_blocked=True,
-                block_type=AutomationBlockType.SESSION_EXPIRED,
-                details={"url": self.driver.current_url},
-                screenshot_path=screenshot_path
-            )
-        elif self.check_for_rate_limiting():
-            result = DetectionResult(
-                is_blocked=True,
-                block_type=AutomationBlockType.RATE_LIMIT,
-                details={"url": self.driver.current_url},
-                screenshot_path=screenshot_path
-            )
-        elif self.check_for_ip_block():
-            result = DetectionResult(
-                is_blocked=True,
-                block_type=AutomationBlockType.IP_BLOCK,
-                details={"url": self.driver.current_url},
-                screenshot_path=screenshot_path
-            )
-        elif self.check_for_unusual_activity():
-            result = DetectionResult(
-                is_blocked=True,
-                block_type=AutomationBlockType.UNUSUAL_ACTIVITY,
-                details={"url": self.driver.current_url},
-                screenshot_path=screenshot_path
-            )
-        else:
-            # Nenhum bloqueio detectado
-            result = DetectionResult(
-                is_blocked=False,
-                details={"url": self.driver.current_url},
-                screenshot_path=screenshot_path
-            )
-        
-        # Salva o resultado
-        self.last_detection = result
-        self.detection_history.append(result)
-        
-        # Loga o resultado
-        if result.is_blocked:
-            recommendations = result.get_recommendations()
-            print(f"🚨 Bloqueio detectado: {result.block_type.value}")
-            print(f"📋 Recomendações:")
-            for i, rec in enumerate(recommendations, 1):
-                print(f"  {i}. {rec}")
-        
-        return result
-    
-    def analyze_page_elements(self):
-        """Analisa elementos da página para identificar problemas"""
-        try:
-            # Verifica quantos iframes estão presentes (possíveis captchas)
-            iframes = self.driver.find_elements(By.TAG_NAME, "iframe")
-            
-            # Verifica todos os textos de erro visíveis
-            error_elements = self.driver.find_elements(By.XPATH, 
-                "//div[contains(text(), 'erro') or contains(text(), 'error') or " +
-                "contains(text(), 'falha') or contains(text(), 'failed') or " +
-                "contains(@class, 'error') or contains(@class, 'erro')]")
-            
-            visible_errors = []
-            for element in error_elements:
-                if element.is_displayed():
-                    try:
-                        visible_errors.append(element.text)
-                    except:
-                        pass
-            
-            # Verifica formulários escondidos de segurança
-            security_forms = self.driver.find_elements(By.XPATH, 
-                "//form[contains(@action, 'security') or contains(@action, 'captcha') or contains(@action, 'verify')]")
-            
-            # Reúne todos os dados
-            analysis = {
-                "iframes_count": len(iframes),
-                "visible_errors": visible_errors,
-                "security_forms": len(security_forms),
-                "url": self.driver.current_url,
-                "page_title": self.driver.title
-            }
-            
-            return analysis
-            
-        except Exception as e:
-            print(f"⚠️ Erro durante análise de elementos: {e}")
-            return {"error": str(e)}
 
 class TikTokBot:
     def __init__(self, params):
@@ -378,203 +29,50 @@ class TikTokBot:
         self.music_name = params.get('music_name', '')
         self.music_volume = int(params.get('music_volume', 50))
         
-        # Novos parâmetros de configuração
-        self.use_proxy = params.get('use_proxy', False)
-        self.proxy = params.get('proxy', None)
-        self.headless = params.get('headless', False)
-        self.wait_time_multiplier = params.get('wait_time_multiplier', 1.0)  # Para ajustar tempos de espera
-        
-        # Diretório para debug e screenshots
-        self.debug_dir = params.get('debug_dir', os.path.join(os.getcwd(), 'debug_data'))
-        if not os.path.exists(self.debug_dir):
-            try:
-                os.makedirs(self.debug_dir)
-            except Exception as e:
-                print(f"⚠️ Não foi possível criar diretório de debug: {e}")
-                self.debug_dir = None
-        
         self.driver = None
-        self.detector = None  # Será inicializado após o setup do driver
         self.setup_browser()
-        
-        # Inicializa o detector após o setup do driver
-        if self.driver:
-            self.detector = AutomationDetector(self.driver, self.debug_dir)
-            
+
     def setup_browser(self):
         """Configura o navegador com as opções necessárias para evitar detecção"""
         try:
-            # Verificar a configuração do display
-            is_server = not self._is_display_available()
-            print(f"Detecção de ambiente: {'Servidor' if is_server else 'Desktop'}")
-            
             options = uc.ChromeOptions()
-            
-            # Configurações Stealth
             options.add_argument('--disable-blink-features=AutomationControlled')
             options.add_argument('--disable-dev-shm-usage')
             options.add_argument('--no-sandbox')
             options.add_argument('--window-size=1920,1080')
             options.add_argument('--disable-infobars')
             options.add_argument('--disable-notifications')
-            options.add_argument('--disable-extensions')
-            options.add_argument('--disable-popup-blocking')
-            options.add_argument('--ignore-certificate-errors')
             
-            # Configurações para servidor
-            if is_server or self.headless:
-                # Configurações específicas para execução headless
-                options.add_argument('--headless=new')  # Nova versão de headless do Chrome
-                options.add_argument('--disable-gpu')
-                options.add_argument('--remote-debugging-port=9222')
-                print("✅ Modo headless ativado para ambiente de servidor")
-            
-            # Configurações adicionais de privacidade
-            options.add_argument('--incognito')
+            # Configurações adicionais para servidor
+            options.add_argument('--disable-gpu')
+            options.add_argument('--disable-software-rasterizer')
+            options.add_argument('--disable-setuid-sandbox')
             options.add_argument('--disable-web-security')
-            options.add_argument('--disable-features=IsolateOrigins,site-per-process')
+            options.add_argument('--ignore-certificate-errors')
+            options.add_argument('--start-maximized')
             
-            # Adiciona um user agent aleatório de alta qualidade
+            # Adiciona um user agent aleatório
             user_agents = [
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
             ]
-            selected_agent = random.choice(user_agents)
-            options.add_argument(f'user-agent={selected_agent}')
-            print(f"✅ User Agent configurado: {selected_agent}")
+            options.add_argument(f'user-agent={random.choice(user_agents)}')
             
-            # Configurar proxy se fornecido
-            if self.use_proxy and self.proxy:
-                options.add_argument(f'--proxy-server={self.proxy}')
-                print(f"✅ Proxy configurado: {self.proxy}")
-            
-            # Configurações para adicionar aleatoriedade ao fingerprint
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option("useAutomationExtension", False)
-            
-            # Iniciando Chrome com as configurações
-            self.driver = uc.Chrome(options=options, version_main=135, headless=is_server or self.headless)
-            
-            # Configurações adicionais via JavaScript
-            self._apply_stealth_js()
-            
+            # Iniciando Chrome com configurações específicas para servidor
+            self.driver = uc.Chrome(
+                options=options, 
+                version_main=135,
+                headless=False,
+                use_subprocess=True,  # Importante para ambiente servidor
+                seleniumwire_options={
+                    'verify_ssl': False  # Ajuda com problemas de SSL no servidor
+                }
+            )
             print("✅ Navegador iniciado com sucesso!")
             return True
         except Exception as e:
             print(f"❌ Erro ao configurar o navegador: {e}")
             return False
-    
-    def _is_display_available(self):
-        """Verifica se há um display disponível (útil para detectar ambiente de servidor)"""
-        if platform.system() == 'Windows':
-            return True  # No Windows, geralmente há um display
-        
-        # No Linux, verifica a variável DISPLAY
-        return bool(os.environ.get('DISPLAY', ''))
-    
-    def _apply_stealth_js(self):
-        """Aplica configurações JavaScript para evitar detecção"""
-        try:
-            # Scripts de evasão de fingerprinting
-            stealth_js = """
-            // Oculta sinais de automação
-            Object.defineProperty(navigator, 'webdriver', {get: () => false});
-            
-            // Simula plugins aleatórios (número variável)
-            Object.defineProperty(navigator, 'plugins', {
-                get: () => {
-                    const plugins = [];
-                    const numPlugins = Math.floor(Math.random() * 8) + 2;
-                    for (let i = 0; i < numPlugins; i++) {
-                        plugins.push({
-                            name: `Plugin ${i}`,
-                            description: `Random Plugin ${i}`,
-                            filename: `plugin${i}.dll`,
-                            length: 1
-                        });
-                    }
-                    return plugins;
-                }
-            });
-            
-            // Simula linguagens aleatórias
-            Object.defineProperty(navigator, 'languages', {
-                get: () => ['pt-BR', 'pt', 'en-US', 'en']
-            });
-            
-            // Remove o property navigator.webdriver
-            delete navigator.__proto__.webdriver;
-            
-            // Sobrescreve a função toString do navigator
-            const _originalToString = Function.prototype.toString;
-            Function.prototype.toString = function() {
-                if (this === navigator.permissions.query) {
-                    return "function query() { [native code] }";
-                }
-                return _originalToString.apply(this, arguments);
-            };
-            """
-            
-            # Executa os scripts de evasão
-            self.driver.execute_script(stealth_js)
-            print("✅ Scripts de evasão de detecção aplicados")
-        except Exception as e:
-            print(f"⚠️ Aviso ao aplicar scripts stealth: {e}")
-            
-    def _adaptive_sleep(self, base_time, randomize=True):
-        """Implementa um tempo de espera adaptativo baseado no ambiente"""
-        # Calcula o tempo ajustado pelo multiplicador
-        adjusted_time = base_time * self.wait_time_multiplier
-        
-        # Adiciona aleatoriedade se solicitado
-        if randomize:
-            # Variação de até 30% para mais ou para menos
-            random_factor = random.uniform(0.7, 1.3)
-            final_time = adjusted_time * random_factor
-        else:
-            final_time = adjusted_time
-            
-        # Aplica um mínimo de 0.5 segundos
-        final_time = max(0.5, final_time)
-        
-        # Log em modo verboso
-        # print(f"⏱️ Aguardando {final_time:.2f}s (base: {base_time}s)")
-        
-        # Efetua a pausa
-        time.sleep(final_time)
-    
-    def _safe_click(self, element, use_js=False, attempts=3):
-        """Tenta clicar em um elemento de forma segura, com retentativas"""
-        for attempt in range(attempts):
-            try:
-                # Rola até o elemento
-                self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
-                self._adaptive_sleep(0.5, randomize=False)
-                
-                if use_js:
-                    # Clique via JavaScript
-                    self.driver.execute_script("arguments[0].click();", element)
-                else:
-                    # Tenta primeiro com ActionChains para simular comportamento humano
-                    actions = ActionChains(self.driver)
-                    actions.move_to_element(element)
-                    actions.pause(random.uniform(0.1, 0.3))
-                    actions.click()
-                    actions.perform()
-                
-                return True
-            except Exception as e:
-                if attempt == attempts - 1:
-                    print(f"❌ Erro ao clicar no elemento após {attempts} tentativas: {e}")
-                    return False
-                
-                # Espera um pouco antes de tentar novamente
-                self._adaptive_sleep(1)
-        
-        return False
         
     def inject_session(self):
         """Injeta os cookies de sessão para autenticação"""
@@ -582,19 +80,9 @@ class TikTokBot:
             if not self.driver:
                 return False
                 
-            # Primeiro acessa o TikTok com uma abordagem anti-detecção
-            print("⏳ Acessando TikTok com abordagem stealth...")
+            # Primeiro acessa o TikTok para garantir que o domínio está correto
             self.driver.get('https://www.tiktok.com')
-            
-            # Espera adaptativa
-            self._adaptive_sleep(5)
-            
-            # Verifica se já encontramos algum bloqueio
-            if self.detector:
-                detection = self.detector.detect_automation_block()
-                if detection.is_blocked:
-                    print(f"❌ Bloqueio detectado antes mesmo de injetar cookies: {detection.block_type.value}")
-                    return False
+            time.sleep(5)  # Aumentado para 5 segundos
             
             # Adiciona cookies essenciais
             cookies = [
@@ -618,40 +106,20 @@ class TikTokBot:
                 }
             ]
             
-            # Adiciona cada cookie com pausa adaptativa
+            # Adiciona cada cookie
             for cookie in cookies:
                 try:
                     self.driver.add_cookie(cookie)
-                    self._adaptive_sleep(1)  # Pausa adaptativa
+                    time.sleep(1)  # Pequena pausa entre cada cookie
                 except Exception as cookie_error:
                     print(f"⚠️ Aviso ao adicionar cookie {cookie['name']}: {cookie_error}")
             
-            # Pausa adaptativa mais longa após adicionar os cookies
-            self._adaptive_sleep(5)
+            # Aguarda mais tempo após adicionar os cookies
+            time.sleep(5)
             
-            # Técnica anti-detecção: navegação natural antes de recarregar
-            try:
-                # Tenta fazer algumas interações naturais
-                body = self.driver.find_element(By.TAG_NAME, 'body')
-                actions = ActionChains(self.driver)
-                actions.move_to_element(body)
-                actions.send_keys(Keys.PAGE_DOWN)
-                actions.perform()
-                self._adaptive_sleep(2)
-            except:
-                pass
-            
-            # Recarrega a página com uma técnica anti-cache
-            reload_url = 'https://www.tiktok.com/?_t=' + str(int(time.time()))
-            self.driver.get(reload_url)
-            self._adaptive_sleep(5)  # Espera adaptativa para recarga
-            
-            # Verifica se há bloqueios após recarregar com cookies
-            if self.detector:
-                detection = self.detector.detect_automation_block()
-                if detection.is_blocked:
-                    print(f"❌ Bloqueio detectado após injetar cookies: {detection.block_type.value}")
-                    return False
+            # Recarrega a página
+            self.driver.refresh()
+            time.sleep(5)  # Aguarda a página recarregar completamente
             
             # Verifica se os cookies foram adicionados corretamente
             actual_cookies = self.driver.get_cookies()
@@ -661,7 +129,6 @@ class TikTokBot:
                 print("❌ Cookies de sessão não foram encontrados após a injeção")
                 return False
                 
-            print("✅ Cookies de sessão injetados com sucesso")
             return True
             
         except Exception as e:
@@ -669,7 +136,7 @@ class TikTokBot:
             return False
         
     def test_login(self):
-        """Verifica se a sessão está funcionando com métodos aprimorados"""
+        """Verifica se a sessão está funcionando"""
         try:
             if not self.driver:
                 return False
@@ -681,114 +148,26 @@ class TikTokBot:
             if not session_cookies:
                 print("❌ Cookies de sessão não encontrados")
                 return False
+                
+            # Tenta acessar a página de upload do TikTok Studio (mais seguro que /upload)
+            self.driver.get('https://www.tiktok.com/tiktokstudio/upload')
+            time.sleep(5)  # Aguarda mais tempo para carregar
             
-            # Realiza uma navegação natural para a área de upload em várias etapas
-            try:
-                # Primeiro acessa a página inicial
-                self.driver.get('https://www.tiktok.com')
-                self._adaptive_sleep(3)
-                
-                # Verifica bloqueios na página inicial
-                if self.detector:
-                    detection = self.detector.detect_automation_block()
-                    if detection.is_blocked:
-                        print(f"❌ Bloqueio detectado na página inicial: {detection.block_type.value}")
-                        # Realiza análise adicional da página
-                        analysis = self.detector.analyze_page_elements()
-                        print(f"📊 Análise de página: {analysis}")
-                        return False
-                
-                # Enriquece o histórico de navegação, simulando comportamento humano
-                profile_urls = [
-                    'https://www.tiktok.com/foryou',
-                    'https://www.tiktok.com/explore',
-                ]
-                
-                # Visita algumas páginas aleatórias para criar histórico natural
-                for _ in range(random.randint(1, 2)):
-                    url = random.choice(profile_urls)
-                    print(f"🔍 Visitando URL para enriquecer histórico: {url}")
-                    self.driver.get(url)
-                    self._adaptive_sleep(2)
-                    
-                    # Verifica bloqueios
-                    if self.detector:
-                        detection = self.detector.detect_automation_block()
-                        if detection.is_blocked:
-                            print(f"❌ Bloqueio detectado durante navegação: {detection.block_type.value}")
-                            return False
-                    
-                    # Simula alguma interação aleatória
-                    try:
-                        body = self.driver.find_element(By.TAG_NAME, 'body')
-                        actions = ActionChains(self.driver)
-                        actions.move_to_element(body)
-                        for _ in range(random.randint(1, 3)):
-                            actions.send_keys(Keys.PAGE_DOWN)
-                            actions.pause(0.5)
-                        actions.perform()
-                        self._adaptive_sleep(2)
-                    except:
-                        pass
-                
-                # Finalmente tenta acessar a página de upload
-                print("⏳ Tentando acessar página de upload...")
-                self.driver.get('https://www.tiktok.com/upload?lang=pt-BR')
-                self._adaptive_sleep(5)
-                
-                # Verifica bloqueios na página de upload
-                if self.detector:
-                    detection = self.detector.detect_automation_block()
-                    if detection.is_blocked:
-                        print(f"❌ Bloqueio detectado na página de upload: {detection.block_type.value}")
-                        return False
-                
-                # Se chegamos aqui e não fomos redirecionados para login
-                current_url = self.driver.current_url.lower()
-                if 'login' in current_url or 'sign-in' in current_url:
-                    print("❌ Redirecionado para página de login")
-                    
-                    # Análise adicional
-                    if self.detector:
-                        analysis = self.detector.analyze_page_elements()
-                        print(f"📊 Análise da página de login: {analysis}")
-                    
-                    return False
-                
-                # Verifica se elementos específicos da página de upload estão presentes
-                upload_elements = [
-                    (By.XPATH, "//div[contains(@class, 'upload') or contains(@class, 'uploader')]"),
-                    (By.CSS_SELECTOR, "input[type='file']"),
-                    (By.XPATH, "//div[contains(text(), 'Upload') or contains(text(), 'Carregar')]")
-                ]
-                
-                # Tenta encontrar pelo menos um dos elementos
-                for selector_type, selector in upload_elements:
-                    try:
-                        WebDriverWait(self.driver, 10).until(
-                            EC.presence_of_element_located((selector_type, selector))
-                        )
-                        print(f"✅ Sessão válida e funcionando - elemento encontrado: {selector}")
-                        return True
-                    except:
-                        continue
-                
-                # Verifica pelo título da página ou URL específica
-                if "upload" in self.driver.current_url.lower() and "login" not in self.driver.current_url.lower():
-                    print("✅ Sessão válida (verificação baseada em URL)")
-                    return True
-                
-                print("❌ Não foi possível confirmar acesso à página de upload")
-                
-                # Análise adicional
-                if self.detector:
-                    analysis = self.detector.analyze_page_elements()
-                    print(f"📊 Análise final da página: {analysis}")
-                
+            # Verifica se fomos redirecionados para a página de login
+            current_url = self.driver.current_url.lower()
+            if 'login' in current_url or 'sign-in' in current_url:
+                print("❌ Redirecionado para página de login")
                 return False
-                
-            except Exception as nav_error:
-                print(f"❌ Erro durante navegação para teste: {nav_error}")
+
+            try:
+                # Tenta encontrar elementos que só aparecem quando logado
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]'))
+                )
+                print("✅ Sessão válida e funcionando")
+                return True
+            except:
+                print("❌ Não foi possível encontrar elementos da página de upload")
                 return False
 
         except Exception as e:
@@ -796,52 +175,15 @@ class TikTokBot:
             return False
 
     def download_video(self):
-        """Baixa o vídeo da URL fornecida com tratamento de erros aprimorado"""
+        """Baixa o vídeo da URL fornecida"""
         try:
-            print(f"⏳ Iniciando download do vídeo: {self.video_url}")
-            
-            # Configuração de headers para evitar bloqueios
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
-                'Accept': 'video/webm,video/mp4,video/*;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-                'Referer': 'https://www.google.com/'
-            }
-            
-            # Primeiro verifica se o URL está acessível
-            head_response = requests.head(self.video_url, headers=headers)
-            if head_response.status_code != 200:
-                print(f"❌ URL do vídeo não acessível. Status code: {head_response.status_code}")
-                return None
-                
-            # Verifica se o content-type é de vídeo
-            content_type = head_response.headers.get('Content-Type', '')
-            if not ('video' in content_type or 'octet-stream' in content_type):
-                print(f"⚠️ O content-type não parece ser de vídeo: {content_type}, mas continuando...")
-            
-            # Baixa o vídeo com suporte a streaming
-            response = requests.get(self.video_url, headers=headers, stream=True, timeout=60)
-            
+            response = requests.get(self.video_url, stream=True)
             if response.status_code == 200:
-                # Gera um nome de arquivo temporário único
                 temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
-                file_size = 0
-                
-                # Escreve o conteúdo do vídeo em chunks para eficiência
-                for chunk in response.iter_content(chunk_size=8192):
+                for chunk in response.iter_content(chunk_size=1024):
                     if chunk:
                         temp_file.write(chunk)
-                        file_size += len(chunk)
-                        
                 temp_file.close()
-                
-                # Verifica se o arquivo tem um tamanho mínimo (1KB)
-                if os.path.getsize(temp_file.name) < 1024:
-                    print("❌ O arquivo baixado é muito pequeno para ser um vídeo válido")
-                    os.remove(temp_file.name)
-                    return None
-                
-                print(f"✅ Vídeo baixado com sucesso: {temp_file.name} ({file_size/1024/1024:.2f} MB)")
                 return temp_file.name
             else:
                 print(f"❌ Erro ao baixar vídeo. Status code: {response.status_code}")
@@ -851,131 +193,86 @@ class TikTokBot:
             return None
 
     def _clear_caption_field(self):
-        """Limpa o campo de legenda com método aprimorado"""
+        """Limpa o campo de legenda usando o XPath específico e uma abordagem mais robusta"""
         try:
-            # Seletores para o campo de legenda (múltiplas estratégias)
-            caption_selectors = [
-                (By.XPATH, "//div[contains(@class, 'caption') or contains(@class, 'text-input')]//div[@role='textbox']"),
-                (By.XPATH, "//div[contains(@class, 'caption') or contains(@class, 'editor')]"),
-                (By.XPATH, "/html/body/div[1]/div/div/div[2]/div[2]/div/div/div/div[3]/div[1]/div[2]/div[1]/div[2]/div[1]/div/div/div/div/div/div"),
-                (By.CSS_SELECTOR, "div[role='textbox']"),
-                (By.XPATH, "//div[contains(text(), 'Descreva seu vídeo') or contains(text(), 'Describe your video')]/..//div[@role='textbox']")
-            ]
-            
-            caption_field = None
-            for selector_type, selector in caption_selectors:
-                try:
-                    caption_field = WebDriverWait(self.driver, 10).until(
-                        EC.presence_of_element_located((selector_type, selector))
-                    )
-                    print(f"✅ Campo de legenda encontrado com seletor: {selector}")
-                    break
-                except:
-                    continue
-            
-            if not caption_field:
-                print("❌ Não foi possível encontrar o campo de legenda")
-                return None
-            
-            # Garante que o campo está interativo
-            WebDriverWait(self.driver, 5).until(
-                EC.element_to_be_clickable((By.XPATH, caption_field.get_attribute("xpath")))
+            # Espera o campo de legenda ficar visível e clicável
+            caption_field = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, "/html/body/div[1]/div/div/div[2]/div[2]/div/div/div/div[3]/div[1]/div[2]/div[1]/div[2]/div[1]/div/div/div/div/div/div"))
             )
             
+            # Garante que o campo está interativo
+            WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "/html/body/div[1]/div/div/div[2]/div[2]/div/div/div/div[3]/div[1]/div[2]/div[1]/div[2]/div[1]/div/div/div/div/div/div"))
+            )
+
             # Primeiro clica no campo para garantir o foco
-            self._safe_click(caption_field)
-            self._adaptive_sleep(1)
+            caption_field.click()
+            time.sleep(1)
+
+            # Digita um caractere temporário para garantir que o campo está ativo
+            caption_field.send_keys(".")
+            time.sleep(0.5)
+
+            # Seleciona todo o texto usando Ctrl+A
+            ActionChains(self.driver).key_down(Keys.CONTROL).send_keys('a').key_up(Keys.CONTROL).perform()
+            time.sleep(0.5)
             
-            # Abordagem 1: Ctrl+A e Delete
-            try:
-                actions = ActionChains(self.driver)
-                actions.key_down(Keys.CONTROL).send_keys('a').key_up(Keys.CONTROL).perform()
-                self._adaptive_sleep(0.5)
-                actions.send_keys(Keys.DELETE).perform()
-                self._adaptive_sleep(0.5)
-            except:
-                pass
-            
-            # Abordagem 2: Limpa diretamente via JavaScript
-            try:
-                self.driver.execute_script("arguments[0].textContent = '';", caption_field)
-                self._adaptive_sleep(0.5)
-            except:
-                pass
-            
-            # Abordagem 3: Envia uma série de backspaces
-            try:
+            # Apaga o texto selecionado
+            caption_field.send_keys(Keys.BACKSPACE)
+            time.sleep(0.5)
+
+            # Se ainda houver texto, tenta uma abordagem alternativa de limpeza caractere por caractere
+            if caption_field.get_attribute("textContent"):
                 actions = ActionChains(self.driver)
                 for _ in range(50):  # Número suficiente de backspaces para garantir
                     actions.send_keys(Keys.BACKSPACE)
                 actions.perform()
-                self._adaptive_sleep(0.5)
-            except:
-                pass
-            
+                time.sleep(0.5)
+
             return caption_field
         except Exception as e:
             print(f"❌ Erro ao limpar campo de legenda: {e}")
             return None
 
     def _insert_hashtag(self, caption_field, hashtag):
-        """Insere uma hashtag com método aprimorado"""
+        """Insere uma hashtag usando uma abordagem simplificada com teclas de seta"""
         try:
             # Digite a hashtag sem espaço
             caption_field.send_keys(f"#{hashtag}")
-            self._adaptive_sleep(2)  # Aguarda as sugestões carregarem
-            
-            # Procura pelo elemento da hashtag sugerida
-            try:
-                # Abordagem 1: Usando teclas de seta
-                actions = ActionChains(self.driver)
-                actions.send_keys(Keys.ARROW_DOWN)  # Seleciona a primeira sugestão
-                actions.perform()
-                self._adaptive_sleep(1)
-                
-                actions = ActionChains(self.driver)
-                actions.send_keys(Keys.ENTER)  # Confirma a seleção
-                actions.perform()
-                self._adaptive_sleep(1)
-                
-                # Verifica se a hashtag foi inserida corretamente
-                if not f"#{hashtag}" in caption_field.get_attribute("textContent"):
-                    # Abordagem 2: Tenta clicar diretamente na sugestão
-                    hashtag_selectors = [
-                        (By.XPATH, f"//div[contains(text(), '#{hashtag}')]"),
-                        (By.XPATH, f"//span[contains(text(), '#{hashtag}')]"),
-                        (By.XPATH, f"//div[contains(@class, 'hashtag') and contains(., '#{hashtag}')]")
-                    ]
+            time.sleep(5)  # Aguarda as sugestões carregarem
+
+            # Primeiro tenta usar as teclas de seta
+            caption_field.send_keys(Keys.ARROW_DOWN)  # Seleciona a primeira sugestão
+            time.sleep(1)
+            caption_field.send_keys(Keys.ENTER)  # Confirma a seleção
+            time.sleep(1)
+
+            # Se a abordagem com teclas não funcionou, tenta clicar diretamente
+            if not f"#{hashtag}" in caption_field.get_attribute("textContent"):
+                try:
+                    # Procura pelo elemento mais provável de ser a hashtag
+                    hashtag_elements = self.driver.find_elements(By.XPATH, 
+                        f"//div[contains(text(), '#{hashtag}') or contains(., '#{hashtag}')]")
                     
-                    for selector_type, selector in hashtag_selectors:
-                        try:
-                            hashtag_element = WebDriverWait(self.driver, 5).until(
-                                EC.element_to_be_clickable((selector_type, selector))
-                            )
-                            self._safe_click(hashtag_element, use_js=True)
-                            self._adaptive_sleep(1)
-                            break
-                        except:
-                            continue
-                
-                # Se mesmo assim a hashtag não foi inserida, adiciona um espaço para usar como texto normal
-                if not f"#{hashtag}" in caption_field.get_attribute("textContent"):
-                    caption_field.send_keys(" ")
-                    self._adaptive_sleep(0.5)
-                
-                return True
-            except Exception as hashtag_error:
-                print(f"⚠️ Erro ao selecionar hashtag sugerida: {hashtag_error}")
-                # Falha silenciosa, apenas adiciona um espaço para continuar
-                caption_field.send_keys(" ")
-                self._adaptive_sleep(0.5)
-                return False
-                
+                    for element in hashtag_elements:
+                        if element.is_displayed():
+                            try:
+                                self.driver.execute_script("arguments[0].click();", element)
+                                time.sleep(1)
+                                break
+                            except:
+                                continue
+
+                except Exception as e:
+                    print(f"⚠️ Erro ao tentar clicar na hashtag: {e}")
+
+            # Adiciona um espaço após a hashtag
+            caption_field.send_keys(" ")
+            time.sleep(0.5)
+
         except Exception as e:
-            print(f"❌ Erro ao inserir hashtag: {e}")
-            caption_field.send_keys(" ")  # Adiciona espaço para permitir continuação
-            self._adaptive_sleep(0.5)
-            return False
+            print(f"⚠️ Erro ao inserir hashtag #{hashtag}: {e}")
+            caption_field.send_keys(" ")
 
     def _force_hover_visibility(self):
         """Força todos os elementos hover a ficarem visíveis"""
@@ -1013,508 +310,241 @@ class TikTokBot:
         time.sleep(1)
 
     def _select_music(self):
-        """Seleciona uma música com método aprimorado"""
+        """Seleciona a música para o vídeo"""
         try:
-            # Localiza o botão de adicionar música com múltiplas estratégias
-            music_button_selectors = [
-                (By.XPATH, "//div[contains(text(), 'Adicionar som') or contains(text(), 'Add sound')]"),
-                (By.XPATH, "//button[contains(@class, 'music') or contains(@class, 'sound')]"),
-                (By.XPATH, "//div[contains(@class, 'music-icon') or contains(@class, 'sound-icon')]"),
-                (By.XPATH, "//button[.//*[name()='svg' and (contains(@class, 'music') or contains(@class, 'sound'))]]")
-            ]
-            
-            music_button = None
-            for selector_type, selector in music_button_selectors:
-                try:
-                    music_button = WebDriverWait(self.driver, 5).until(
-                        EC.element_to_be_clickable((selector_type, selector))
-                    )
-                    print(f"✅ Botão de música encontrado com seletor: {selector}")
-                    break
-                except:
-                    continue
-            
-            if not music_button:
-                print("❌ Não foi possível encontrar o botão de adicionar música")
-                return False
-            
-            # Clica no botão de música
-            if not self._safe_click(music_button, use_js=True):
-                print("❌ Falha ao clicar no botão de adicionar música")
-                return False
-            
-            # Aguarda o painel de músicas abrir
-            self._adaptive_sleep(5)
-            
-            # Procura pelo campo de pesquisa de música
-            search_selectors = [
-                (By.XPATH, "//input[contains(@placeholder, 'Pesquisar') or contains(@placeholder, 'Search')]"),
-                (By.CSS_SELECTOR, "input[type='search']"),
-                (By.XPATH, "//div[contains(@class, 'search')]//input"),
-                (By.XPATH, "//input[contains(@class, 'search')]")
-            ]
-            
-            search_field = None
-            for selector_type, selector in search_selectors:
-                try:
-                    search_field = WebDriverWait(self.driver, 10).until(
-                        EC.element_to_be_clickable((selector_type, selector))
-                    )
-                    print(f"✅ Campo de pesquisa de música encontrado com seletor: {selector}")
-                    break
-                except:
-                    continue
-            
-            if not search_field:
-                print("❌ Não foi possível encontrar o campo de pesquisa de música")
-                
-                # Tenta fechar o painel e retornar
-                try:
-                    close_buttons = self.driver.find_elements(By.XPATH, "//button[contains(@class, 'close')]")
-                    if close_buttons:
-                        self._safe_click(close_buttons[0], use_js=True)
-                except:
-                    pass
-                    
-                return False
-            
-            # Clica e limpa o campo de pesquisa
-            self._safe_click(search_field)
+            # Clica no botão de editar música
+            edit_music_button = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "/html/body/div[1]/div/div/div[2]/div[2]/div/div/div/div[3]/div[2]/div/div[3]/div/button"))
+            )
+            edit_music_button.click()
+            time.sleep(2)
+
+            # Pesquisa a música
+            search_field = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, "//input[@placeholder='Pesquisar']"))
+            )
             search_field.clear()
-            self._adaptive_sleep(1)
-            
-            # Digita o nome da música
             search_field.send_keys(self.music_name)
-            self._adaptive_sleep(1)
-            
-            # Pressiona Enter para pesquisar
             search_field.send_keys(Keys.ENTER)
-            
-            # Aguarda os resultados de pesquisa
-            self._adaptive_sleep(5)
-            
-            # Tenta localizar o primeiro resultado
-            result_selectors = [
-                (By.XPATH, "//div[contains(@class, 'music-item') or contains(@class, 'sound-item')]"),
-                (By.XPATH, "//div[contains(@class, 'music-card') or contains(@class, 'sound-card')]"),
-                (By.XPATH, "//div[contains(@class, 'recommend-item')]"),
-                (By.XPATH, "//li[contains(@class, 'search-result-item')]")
-            ]
-            
-            result_item = None
-            for selector_type, selector in result_selectors:
-                try:
-                    result_items = self.driver.find_elements(selector_type, selector)
-                    if result_items:
-                        result_item = result_items[0]  # Pega o primeiro resultado
-                        print(f"✅ Resultado de música encontrado com seletor: {selector}")
-                        break
-                except:
-                    continue
-            
-            if not result_item:
-                print("❌ Não foram encontrados resultados para a música")
-                
-                # Tenta fechar o painel e retornar
-                try:
-                    close_buttons = self.driver.find_elements(By.XPATH, "//button[contains(@class, 'close')]")
-                    if close_buttons:
-                        self._safe_click(close_buttons[0], use_js=True)
-                except:
-                    pass
-                    
-                return False
-            
-            # Clica no resultado encontrado
-            if not self._safe_click(result_item, use_js=True):
-                print("❌ Falha ao clicar no resultado da música")
-                return False
-            
-            # Aguarda a música ser aplicada
-            self._adaptive_sleep(5)
-            
-            # Verifica se a música foi aplicada com sucesso
+            time.sleep(3)
+
             try:
-                # Tenta encontrar indicadores de que a música foi adicionada
-                WebDriverWait(self.driver, 5).until(
-                    EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'music-info') or contains(@class, 'sound-info')]"))
+                # Encontra o container da música (primeiro resultado)
+                music_container = WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'search-result-list')]//div[contains(@class, 'music-card')]"))
                 )
-                print("✅ Música adicionada com sucesso")
-                return True
-            except:
-                # Se não encontrou indicadores claros, verifica se voltamos à tela de edição
+
+                # Rola até o container da música
+                self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", music_container)
+                time.sleep(1)
+
+                # Move o mouse sobre o container para revelar o botão
+                actions = ActionChains(self.driver)
+                actions.move_to_element(music_container).perform()
+                time.sleep(1)
+
+                # Força o estado de hover via JavaScript
+                self.driver.execute_script("""
+                    var element = arguments[0];
+                    var event = new MouseEvent('mouseover', {
+                        'view': window,
+                        'bubbles': true,
+                        'cancelable': true
+                    });
+                    element.dispatchEvent(event);
+                """, music_container)
+                time.sleep(1)
+
+                # Tenta clicar no botão "Usar" sem validações
                 try:
-                    WebDriverWait(self.driver, 5).until(
-                        EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Post') or contains(text(), 'Postar')]"))
-                    )
-                    print("✅ Música provavelmente adicionada (retorno à tela de edição)")
-                    return True
+                    use_button = music_container.find_element(By.XPATH, ".//button[contains(text(), 'Usar')]")
+                    use_button.click()
                 except:
-                    print("❌ Não foi possível confirmar a adição da música")
-                    return False
-        
+                    try:
+                        use_button = WebDriverWait(self.driver, 5).until(
+                            EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Usar')]"))
+                        )
+                        use_button.click()
+                    except:
+                        buttons = music_container.find_elements(By.TAG_NAME, "button")
+                        for button in buttons:
+                            try:
+                                if "usar" in button.get_attribute("textContent").lower():
+                                    self.driver.execute_script("arguments[0].click();", button)
+                                    break
+                            except:
+                                continue
+
+                time.sleep(2)
+                
+                # Aguarda e encontra o container correto para scroll
+                music_modal = WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.XPATH, "/html/body/div[6]/div/div/div[3]"))
+                )
+                
+                # Rola dentro do container correto
+                self.driver.execute_script("""
+                    arguments[0].scrollTo({
+                        top: arguments[0].scrollHeight,
+                        behavior: 'smooth'
+                    });
+                """, music_modal)
+                time.sleep(1)
+
+                return self._configure_music_settings()
+
+            except Exception as e:
+                print(f"⚠️ Erro ao interagir com o container da música: {e}")
+                return False
+
         except Exception as e:
             print(f"❌ Erro ao selecionar música: {e}")
             return False
-    
+
     def _configure_music_settings(self):
-        """Configura o volume da música com método aprimorado"""
         try:
-            # Tenta encontrar botão de configurações de áudio ou ícone similar
-            volume_selectors = [
-                (By.XPATH, "//div[contains(@class, 'volume') or contains(@class, 'audio-settings')]"),
-                (By.XPATH, "//button[.//*[name()='svg' and (contains(@class, 'volume') or contains(@class, 'audio'))]]"),
-                (By.XPATH, "//div[contains(@class, 'music-info')]//button"),
-                (By.XPATH, "//div[contains(@class, 'sound-info')]//button")
-            ]
-            
-            volume_button = None
-            for selector_type, selector in volume_selectors:
-                try:
-                    volume_elements = self.driver.find_elements(selector_type, selector)
-                    if volume_elements:
-                        # Tenta encontrar o botão mais provável que controla volume
-                        for element in volume_elements:
-                            if 'volume' in element.get_attribute('class').lower() or \
-                               'audio' in element.get_attribute('class').lower():
-                                volume_button = element
-                                break
-                        
-                        # Se não achou por classe, usa o primeiro encontrado
-                        if not volume_button and volume_elements:
-                            volume_button = volume_elements[0]
-                            
-                        print(f"✅ Botão de volume encontrado com seletor: {selector}")
-                        break
-                except:
-                    continue
-            
-            if not volume_button:
-                print("❌ Não foi possível encontrar o controle de volume")
-                return False
-            
-            # Clica no botão de volume
-            if not self._safe_click(volume_button, use_js=True):
-                print("❌ Falha ao clicar no controle de volume")
-                return False
-            
-            # Aguarda o painel de volume abrir
-            self._adaptive_sleep(2)
-            
-            # Tenta encontrar o controle deslizante (slider) de volume
-            slider_selectors = [
-                (By.XPATH, "//input[@type='range']"),
-                (By.XPATH, "//div[contains(@class, 'slider')]"),
-                (By.XPATH, "//div[contains(@class, 'volume-slider')]")
-            ]
-            
-            volume_slider = None
-            for selector_type, selector in slider_selectors:
-                try:
-                    volume_slider = WebDriverWait(self.driver, 5).until(
-                        EC.presence_of_element_located((selector_type, selector))
-                    )
-                    print(f"✅ Slider de volume encontrado com seletor: {selector}")
-                    break
-                except:
-                    continue
-            
-            if not volume_slider:
-                print("❌ Não foi possível encontrar o slider de volume")
-                return False
-            
-            # Define o valor do volume
+            # Clica na imagem específica que ativa o controle de volume
+            volume_trigger = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, "/html/body/div[6]/div/div/div[3]/div[2]/div/div[1]/div/div[1]/div[3]/img"))
+            )
+            actions = ActionChains(self.driver)
+            actions.move_to_element(volume_trigger)
+            actions.click()
+            actions.perform()
+            time.sleep(2)
+
             try:
-                # Se for um input range, define diretamente
-                if volume_slider.tag_name.lower() == 'input' and volume_slider.get_attribute('type') == 'range':
-                    # Define o valor diretamente via JavaScript
-                    self.driver.execute_script(f"arguments[0].value = {self.music_volume};", volume_slider)
-                    self.driver.execute_script("arguments[0].dispatchEvent(new Event('change', { bubbles: true }));", volume_slider)
-                    self._adaptive_sleep(1)
+                # Encontra os containers de volume - deve haver dois
+                volume_containers = WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.jsx-2057176669.volume-range"))
+                )
+                
+                # O segundo container é o "Som adicionado"
+                if len(volume_containers) >= 2:
+                    volume_container = volume_containers[1]  # Pegando o segundo container (Som adicionado)
                     
-                    # Confirma com uma interação do usuário
+                    # Encontra o input range dentro do container
+                    volume_input = volume_container.find_element(By.CSS_SELECTOR, "input[type='range']")
+                    
+                    # Pega o valor atual e o valor máximo do input
+                    current_value = float(volume_input.get_attribute("value"))
+                    max_value = float(volume_input.get_attribute("max") or "1")
+                    min_value = float(volume_input.get_attribute("min") or "0")
+                    
+                    # Converte o volume desejado para a escala do input
+                    target_volume = self.music_volume / 100
+                    
+                    # Ajusta o volume usando uma sequência de teclas de seta
                     actions = ActionChains(self.driver)
-                    actions.move_to_element(volume_slider)
-                    actions.click()
+                    actions.click(volume_input)
+                    actions.pause(0.5)
+                    
+                    # Primeiro reseta para o mínimo
+                    for _ in range(100):  # Número suficiente para garantir que chegue ao mínimo
+                        actions.send_keys(Keys.LEFT)
+                    actions.pause(0.5)
+                    
+                    # Agora incrementa até o valor desejado
+                    steps = int(target_volume * 100)  # Cada passo é aproximadamente 1%
+                    for _ in range(steps):
+                        actions.send_keys(Keys.RIGHT)
+                        actions.pause(0.02)  # Pequena pausa entre cada incremento
+                    
                     actions.perform()
+                    time.sleep(1)
+
+                    # Verifica se o valor foi ajustado corretamente
+                    final_value = float(volume_input.get_attribute("value"))
+                    if abs(final_value - target_volume) > 0.02:  # tolerância de 2%
+                        print(f"⚠️ Volume pode não ter sido ajustado precisamente.")
+                        print(f"Valor atual: {final_value * 100}%")
+                        print(f"Valor esperado: {self.music_volume}%")
+
                 else:
-                    # Para sliders personalizados, tenta clicar na posição relativa
-                    # Obtém o tamanho e posição do slider
-                    slider_width = volume_slider.size['width']
-                    
-                    # Calcula a posição X baseada no percentual do volume (0-100)
-                    # Converte de 0-100 para 0-1 e multiplica pela largura
-                    target_x = (self.music_volume / 100) * slider_width
-                    
-                    # Move para o início do slider e depois para a posição desejada
-                    actions = ActionChains(self.driver)
-                    actions.move_to_element_with_offset(volume_slider, 0, 0)  # Move para o início
-                    actions.click_and_hold()
-                    actions.move_by_offset(target_x, 0)  # Move para a posição do volume
-                    actions.release()
-                    actions.perform()
-                
-                self._adaptive_sleep(1)
-                
-                # Procura e clica em qualquer botão de confirmar/aplicar se existir
-                confirm_selectors = [
-                    (By.XPATH, "//button[contains(text(), 'Confirmar') or contains(text(), 'Confirm') or contains(text(), 'Apply') or contains(text(), 'Aplicar')]"),
-                    (By.XPATH, "//button[contains(@class, 'confirm') or contains(@class, 'apply')]")
-                ]
-                
-                for selector_type, selector in confirm_selectors:
-                    try:
-                        confirm_button = WebDriverWait(self.driver, 2).until(
-                            EC.element_to_be_clickable((selector_type, selector))
-                        )
-                        self._safe_click(confirm_button, use_js=True)
-                        self._adaptive_sleep(1)
-                        break
-                    except:
-                        continue
-                
-                print(f"✅ Volume da música ajustado para {self.music_volume}%")
-                return True
-            
-            except Exception as slider_error:
-                print(f"❌ Erro ao ajustar o volume: {slider_error}")
-                return False
-        
+                    print("⚠️ Não foi possível encontrar o controle de 'Som adicionado'")
+
+            except Exception as e:
+                print(f"⚠️ Aviso ao ajustar volume: {e}")
+
+            # Clica no botão "Salvar edição"
+            save_button = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "/html/body/div[6]/div/div/div[4]/button[2]"))
+            )
+            save_button.click()
+            time.sleep(2)
+
+            return True
+
         except Exception as e:
-            print(f"❌ Erro ao configurar volume da música: {e}")
+            print(f"⚠️ Aviso ao configurar áudio: {e}")
             return False
 
     def post_video(self):
-        """Método principal para realizar a postagem do vídeo com abordagem robusta"""
+        """Posta o vídeo no TikTok"""
         try:
-            if not self.driver:
-                print("❌ Driver não inicializado")
-                return False
-                
-            # Baixa o vídeo
-            print("⏳ Baixando vídeo...")
+            # Navega até a página de upload do TikTok Studio
+            self.driver.get('https://www.tiktok.com/tiktokstudio/upload')
+            time.sleep(random.uniform(3, 5))
+
+            # Faz upload do vídeo
             video_path = self.download_video()
             if not video_path:
-                print("❌ Falha ao baixar o vídeo")
                 return False
-                
-            try:
-                # Acessa a página de upload de forma natural
-                print("⏳ Acessando página de upload...")
-                self.driver.get('https://www.tiktok.com/upload?lang=pt-BR')
-                self._adaptive_sleep(7)  # Espera maior para carregamento completo
-                
-                # Verifica bloqueios na página de upload
-                if self.detector:
-                    detection = self.detector.detect_automation_block()
-                    if detection.is_blocked:
-                        print(f"❌ Bloqueio detectado ao acessar página de upload: {detection.block_type.value}")
-                        return False
-                
-                # Verifica se estamos realmente na página de upload
-                current_url = self.driver.current_url.lower()
-                if 'login' in current_url or 'sign-in' in current_url:
-                    print("❌ Redirecionado para página de login durante tentativa de upload")
-                    
-                    # Análise adicional da página de login
-                    if self.detector:
-                        analysis = self.detector.analyze_page_elements()
-                        print(f"📊 Análise da página de login: {analysis}")
-                    
-                    return False
-                
-                # Procura o elemento de input do arquivo com múltiplas estratégias
-                file_input_selectors = [
-                    (By.CSS_SELECTOR, "input[type='file']"),
-                    (By.XPATH, "//input[@type='file']"),
-                    (By.XPATH, "//div[contains(@class, 'upload')]//input[@type='file']")
-                ]
-                
-                file_input = None
-                for selector_type, selector in file_input_selectors:
-                    try:
-                        file_input = WebDriverWait(self.driver, 10).until(
-                            EC.presence_of_element_located((selector_type, selector))
-                        )
-                        print(f"✅ Input de arquivo encontrado com seletor: {selector}")
-                        break
-                    except:
-                        continue
-                
-                if not file_input:
-                    print("❌ Não foi possível encontrar o campo de upload de arquivos")
-                    return False
-                
-                # Enviando o arquivo com abordagem robusta
-                try:
-                    print(f"⏳ Enviando vídeo: {video_path}")
-                    # Usa caminho absoluto para maior compatibilidade
-                    abs_path = os.path.abspath(video_path)
-                    
-                    # Scroll para o elemento de input ficar visível
-                    self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", file_input)
-                    self._adaptive_sleep(1)
-                    
-                    # Envia o arquivo
-                    file_input.send_keys(abs_path)
-                    
-                    # Espera adaptativa maior para o upload completo (baseado no tamanho do arquivo)
-                    file_size_mb = os.path.getsize(abs_path) / (1024 * 1024)
-                    upload_wait = max(10, min(60, file_size_mb * 2))  # Entre 10s e 60s
-                    print(f"⏳ Aguardando upload do vídeo ({file_size_mb:.1f} MB)...")
-                    self._adaptive_sleep(upload_wait, False)
-                    
-                    # Verifica se o upload teve sucesso
-                    try:
-                        # Tenta encontrar elementos que indicam sucesso no upload
-                        upload_success_indicators = [
-                            (By.XPATH, "//div[contains(@class, 'progress') and contains(@class, 'complete')]"),
-                            (By.XPATH, "//div[contains(text(), 'carregado com sucesso') or contains(text(), 'uploaded successfully')]"),
-                            (By.XPATH, "//div[contains(@class, 'success')]")
-                        ]
-                        
-                        upload_success = False
-                        for selector_type, selector in upload_success_indicators:
-                            try:
-                                WebDriverWait(self.driver, 10).until(
-                                    EC.presence_of_element_located((selector_type, selector))
-                                )
-                                upload_success = True
-                                break
-                            except:
-                                continue
-                        
-                        if not upload_success:
-                            # Verificação alternativa: verifica se campos de edição estão disponíveis
-                            try:
-                                WebDriverWait(self.driver, 10).until(
-                                    EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'caption') or contains(@class, 'description')]"))
-                                )
-                                upload_success = True
-                            except:
-                                pass
-                        
-                        if not upload_success:
-                            print("⚠️ Não foi possível confirmar sucesso do upload, mas continuando...")
-                    except Exception as upload_verify_error:
-                        print(f"⚠️ Erro ao verificar sucesso do upload: {upload_verify_error}")
-                    
-                    # Configurando a legenda e hashtags
-                    self._adaptive_sleep(5)  # Espera para a interface de edição aparecer
-                    
-                    # Adiciona legenda
-                    print("⏳ Configurando legenda e hashtags...")
-                    caption_field = self._clear_caption_field()
-                    if caption_field:
-                        # Insere a legenda
-                        if self.video_caption:
-                            caption_field.send_keys(self.video_caption)
-                            self._adaptive_sleep(1)
-                        
-                        # Adiciona hashtags
-                        if self.hashtags:
-                            for hashtag in self.hashtags:
-                                if caption_field.get_attribute("textContent"):
-                                    # Adiciona um espaço se já houver conteúdo
-                                    caption_field.send_keys(" ")
-                                    self._adaptive_sleep(0.5)
-                                
-                                self._insert_hashtag(caption_field, hashtag)
-                    else:
-                        print("⚠️ Não foi possível encontrar o campo de legenda")
-                    
-                    # Configura música se necessário
-                    if self.music_name:
-                        print(f"⏳ Configurando música: {self.music_name}")
-                        music_added = self._select_music()
-                        if music_added:
-                            print("✅ Música adicionada com sucesso")
-                            
-                            # Configura volume se música foi adicionada
-                            volume_set = self._configure_music_settings()
-                            if volume_set:
-                                print(f"✅ Volume da música ajustado para {self.music_volume}%")
-                            else:
-                                print("⚠️ Não foi possível ajustar o volume da música")
-                        else:
-                            print("⚠️ Não foi possível adicionar a música solicitada")
-                    
-                    # Clica no botão de postar com múltiplas estratégias
-                    print("⏳ Finalizando postagem...")
-                    self._adaptive_sleep(5)  # Espera para garantir que tudo está pronto
-                    
-                    post_button_selectors = [
-                        (By.XPATH, "//button[contains(text(), 'Post') or contains(text(), 'Postar')]"),
-                        (By.XPATH, "//div[contains(@class, 'btn-post') or contains(@class, 'button-post')]"),
-                        (By.XPATH, "//button[contains(@class, 'confirm') or contains(@class, 'submit')]")
-                    ]
-                    
-                    post_button = None
-                    for selector_type, selector in post_button_selectors:
-                        try:
-                            post_button = WebDriverWait(self.driver, 10).until(
-                                EC.element_to_be_clickable((selector_type, selector))
-                            )
-                            print(f"✅ Botão de postar encontrado com seletor: {selector}")
-                            break
-                        except:
-                            continue
-                    
-                    if post_button:
-                        # Tenta clicar com método seguro
-                        if self._safe_click(post_button, use_js=True):
-                            print("✅ Botão de postar clicado com sucesso")
-                            
-                            # Aguarda a postagem ser concluída
-                            self._adaptive_sleep(15)  # Tempo maior para garantir a postagem
-                            
-                            # Verifica se a postagem foi bem-sucedida
-                            success_indicators = [
-                                (By.XPATH, "//div[contains(text(), 'sucesso') or contains(text(), 'success')]"),
-                                (By.XPATH, "//div[contains(@class, 'success')]"),
-                                # Também pode verificar se voltamos para a tela inicial de upload
-                                (By.CSS_SELECTOR, "input[type='file']")
-                            ]
-                            
-                            for selector_type, selector in success_indicators:
-                                try:
-                                    WebDriverWait(self.driver, 10).until(
-                                        EC.presence_of_element_located((selector_type, selector))
-                                    )
-                                    print("✅ Vídeo postado com sucesso!")
-                                    return True
-                                except:
-                                    continue
-                            
-                            # Se nenhum indicador for encontrado, mas não houve erro, considera sucesso
-                            print("✅ Considerando postagem bem-sucedida (sem confirmação explícita)")
-                            return True
-                        else:
-                            print("❌ Não foi possível clicar no botão de postar")
-                    else:
-                        print("❌ Botão de postar não encontrado")
-                
-                except Exception as upload_error:
-                    print(f"❌ Erro ao fazer upload do vídeo: {upload_error}")
-                    return False
-                    
-            except Exception as e:
-                print(f"❌ Erro durante o processo de postagem: {e}")
-                
-                # Captura diagnóstico em caso de erro
-                if self.detector:
-                    print("📋 Executando diagnóstico final após erro...")
-                    detection = self.detector.detect_automation_block()
-                    analysis = self.detector.analyze_page_elements()
-                    print(f"📊 Análise final da página: {analysis}")
-                
+
+            file_input = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]'))
+            )
+            file_input.send_keys(video_path)
+
+            # Espera o vídeo carregar (15 segundos)
+            print("⌛ Aguardando o vídeo carregar...")
+            time.sleep(15)
+
+            # Limpa e insere a legenda
+            caption_field = self._clear_caption_field()
+            if not caption_field:
                 return False
-                
-        except Exception as e:
-            print(f"❌ Erro geral no processo de postagem: {e}")
-            return False
+
+            if self.video_caption:
+                caption_field.send_keys(self.video_caption)
+                caption_field.send_keys(Keys.ENTER)  # Pula uma linha após a legenda
+                time.sleep(0.5)
+
+            # Adiciona as hashtags
+            for hashtag in self.hashtags:
+                self._insert_hashtag(caption_field, hashtag)
+
+            # Seleciona a música
+            if self.music_name:
+                if not self._select_music():
+                    print("⚠️ Não foi possível selecionar a música desejada")
+
+            # Rola a página para baixo e clica em publicar
+            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(1)
+
+            # Clica no botão de publicar
+            post_button = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "/html/body/div[1]/div/div/div[2]/div[2]/div/div/div/div[4]/div/button[1]"))
+            )
+            post_button.click()
+
+            # Aguarda um tempo para o upload completar
+            print("⌛ Aguardando a publicação completar...")
+            time.sleep(10)  # Tempo fixo de espera após clicar em publicar
             
-        return False
+            # Limpa o arquivo temporário
+            try:
+                os.unlink(video_path)
+            except:
+                pass
+
+            print("✅ Processo de postagem concluído!")
+            return True  # Sempre retorna True após clicar no botão de publicar
+
+        except Exception as e:
+            print(f"❌ Erro ao postar vídeo: {e}")
+            return False
             
     def wait_for_user_input(self):
         """Aguarda input do usuário para continuar"""
