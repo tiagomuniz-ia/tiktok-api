@@ -5,34 +5,24 @@ RUN apt-get update && apt-get install -y \
     chromium \
     chromium-driver \
     xvfb \
-    libgconf-2-4 \
     libnss3 \
-    libxss1 \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libgtk-3-0 \
     libgbm1 \
-    wget \
-    gnupg \
-    fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
-# Configura o diretório de trabalho
 WORKDIR /app
 
-# Copia os arquivos necessários
-COPY requirements.txt .
-COPY tiktok_bot.py .
-COPY api.py .
+# Copia os arquivos
+COPY . .
 
-# Instala as dependências Python
+# Instala dependências Python
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Configura o display virtual
+# Configura variáveis de ambiente
 ENV DISPLAY=:99
+ENV PYTHONUNBUFFERED=1
 
-# Script de inicialização
-COPY start.sh .
-RUN chmod +x start.sh
+# Expõe a porta
+EXPOSE 3090
 
-CMD ["./start.sh"]
+# Comando para iniciar
+CMD ["bash", "-c", "Xvfb :99 -screen 0 1920x1080x24 & sleep 2 && python api.py"]

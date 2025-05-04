@@ -42,14 +42,11 @@ class TikTokBot:
             options.add_argument('--window-size=1920,1080')
             options.add_argument('--disable-infobars')
             options.add_argument('--disable-notifications')
-            
-            # Configurações adicionais para servidor
             options.add_argument('--disable-gpu')
             options.add_argument('--disable-software-rasterizer')
+            options.add_argument('--headless=new')  # Novo formato headless
             options.add_argument('--disable-setuid-sandbox')
             options.add_argument('--disable-web-security')
-            options.add_argument('--ignore-certificate-errors')
-            options.add_argument('--start-maximized')
             
             # Adiciona um user agent aleatório
             user_agents = [
@@ -58,14 +55,14 @@ class TikTokBot:
             ]
             options.add_argument(f'user-agent={random.choice(user_agents)}')
             
-            # Iniciando Chrome com configurações específicas para servidor
+            # Configuração específica para ambiente containerizado
             self.driver = uc.Chrome(
                 options=options, 
                 version_main=135,
-                headless=False,
-                use_subprocess=True,  # Importante para ambiente servidor
+                headless=True,
+                use_subprocess=True,
                 seleniumwire_options={
-                    'verify_ssl': False  # Ajuda com problemas de SSL no servidor
+                    'verify_ssl': False
                 }
             )
             print("✅ Navegador iniciado com sucesso!")
