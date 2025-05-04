@@ -5,8 +5,6 @@ import random
 import requests
 import tempfile
 import json
-import os
-from datetime import datetime
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -31,99 +29,29 @@ class TikTokBot:
         self.music_name = params.get('music_name', '')
         self.music_volume = int(params.get('music_volume', 50))
         
-        # Configuração do diretório de screenshots
-        self.screenshots_dir = self._setup_screenshots_dir()
-        
         self.driver = None
         self.setup_browser()
-        
-    def _setup_screenshots_dir(self):
-        """Configura o diretório para salvar os screenshots"""
-        screenshots_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'debug_screenshots')
-        if not os.path.exists(screenshots_dir):
-            os.makedirs(screenshots_dir)
-        return screenshots_dir
-
-    def take_screenshot(self, name):
-        """Tira um screenshot da página atual"""
-        try:
-            if not self.driver:
-                return
-            
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"{timestamp}_{name}.png"
-            filepath = os.path.join(self.screenshots_dir, filename)
-            
-            # Tira o screenshot
-            self.driver.save_screenshot(filepath)
-            print(f"📸 Screenshot salvo: {filename}")
-            
-            # Também salva o HTML da página para debug
-            html_filename = f"{timestamp}_{name}.html"
-            html_filepath = os.path.join(self.screenshots_dir, html_filename)
-            with open(html_filepath, 'w', encoding='utf-8') as f:
-                f.write(self.driver.page_source)
-            print(f"📄 HTML salvo: {html_filename}")
-            
-            return filepath
-        except Exception as e:
-            print(f"⚠️ Erro ao tirar screenshot: {e}")
-            return None
 
     def setup_browser(self):
         """Configura o navegador com as opções necessárias para evitar detecção"""
         try:
             options = uc.ChromeOptions()
-            
-            # Configurações de headless e GPU
-            options.add_argument('--headless=new')
-            options.add_argument('--disable-gpu')
-            options.add_argument('--disable-software-rasterizer')
-            
-            # Configurações de memória e sandbox
+            options.add_argument('--disable-blink-features=AutomationControlled')
             options.add_argument('--disable-dev-shm-usage')
             options.add_argument('--no-sandbox')
-            options.add_argument('--disable-setuid-sandbox')
-            
-            # Configurações de janela e performance
             options.add_argument('--window-size=1920,1080')
-            options.add_argument('--start-maximized')
-            options.add_argument('--disable-web-security')
-            options.add_argument('--ignore-certificate-errors')
-            
-            # Configurações anti-detecção
-            options.add_argument('--disable-blink-features=AutomationControlled')
-            options.add_argument("--disable-extensions")
             options.add_argument('--disable-infobars')
             options.add_argument('--disable-notifications')
             
-            # Configurações de cookies e storage
-            options.add_argument('--enable-features=NetworkService,NetworkServiceInProcess')
-            options.add_argument('--disable-features=IsolateOrigins,site-per-process')
+            # Adiciona um user agent aleatório
+            user_agents = [
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
+            ]
+            options.add_argument(f'user-agent={random.choice(user_agents)}')
             
-            # Configurações de cache e dados
-            options.add_argument('--disable-application-cache')
-            options.add_argument('--disable-offline-load-stale-cache')
-            options.add_argument('--disk-cache-size=0')
-            
-            # User agent mais recente e realista
-            options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36')
-            
-            # Configuração específica para ambiente containerizado
-            self.driver = uc.Chrome(
-                options=options, 
-                version_main=123,  # Versão mais recente
-                use_subprocess=True,
-                seleniumwire_options={
-                    'verify_ssl': False,
-                    'disable_encoding': True  # Evita problemas com encoding
-                }
-            )
-            
-            # Configura timeouts mais longos para ambiente de servidor
-            self.driver.set_page_load_timeout(30)
-            self.driver.implicitly_wait(10)
-            
+            # Iniciando Chrome sem modo headless
+            self.driver = uc.Chrome(options=options, version_main=135, headless=False)
             print("✅ Navegador iniciado com sucesso!")
             return True
         except Exception as e:
@@ -135,107 +63,60 @@ class TikTokBot:
         try:
             if not self.driver:
                 return False
+                
+            # Primeiro acessa o TikTok para garantir que o domínio está correto
+            self.driver.get('https://www.tiktok.com')
+            time.sleep(5)  # Aumentado para 5 segundos
             
-            print("🔄 Iniciando processo de injeção de cookies...")
-            
-            # Primeiro acessa uma página neutra do TikTok
-            self.driver.get('https://www.tiktok.com/robots.txt')
-            time.sleep(3)
-            self.take_screenshot('initial_page')
-            
-            print("📝 Cookies atuais antes da injeção:", self.driver.get_cookies())
-            
-            # Adiciona cookies essenciais com atributos expandidos
+            # Adiciona cookies essenciais
             cookies = [
                 {
                     'name': 'sessionid',
                     'value': self.session_id,
                     'domain': '.tiktok.com',
-                    'path': '/',
-                    'secure': True,
-                    'httpOnly': True,
-                    'sameSite': 'Lax'
+                    'path': '/'
                 },
                 {
                     'name': 'sessionid_ss',
                     'value': self.session_id,
                     'domain': '.tiktok.com',
-                    'path': '/',
-                    'secure': True,
-                    'httpOnly': True,
-                    'sameSite': 'Lax'
+                    'path': '/'
                 },
                 {
                     'name': 'sid_tt',
-                    'value': self.sid_tt,
+                    'value': self.sid_tt,  # Usando o sid_tt fornecido
                     'domain': '.tiktok.com',
-                    'path': '/',
-                    'secure': True,
-                    'httpOnly': True,
-                    'sameSite': 'Lax'
-                },
-                {
-                    'name': 'sid_guard',
-                    'value': f"{self.session_id}%7C1683216000%7C5184000%7CSat%2C+03-Jun-2023+13%3A33%3A20+GMT",
-                    'domain': '.tiktok.com',
-                    'path': '/',
-                    'secure': True,
-                    'httpOnly': True
+                    'path': '/'
                 }
             ]
             
-            # Limpa cookies existentes
-            self.driver.delete_all_cookies()
-            time.sleep(1)
-            
-            # Adiciona cada cookie com retry
+            # Adiciona cada cookie
             for cookie in cookies:
-                max_retries = 3
-                for attempt in range(max_retries):
-                    try:
-                        self.driver.add_cookie(cookie)
-                        print(f"✅ Cookie {cookie['name']} adicionado com sucesso")
-                        break
-                    except Exception as cookie_error:
-                        print(f"⚠️ Tentativa {attempt + 1} falhou ao adicionar cookie {cookie['name']}: {cookie_error}")
-                        if attempt == max_retries - 1:
-                            print(f"❌ Falha ao adicionar cookie {cookie['name']} após {max_retries} tentativas")
-                        time.sleep(1)
+                try:
+                    self.driver.add_cookie(cookie)
+                    time.sleep(1)  # Pequena pausa entre cada cookie
+                except Exception as cookie_error:
+                    print(f"⚠️ Aviso ao adicionar cookie {cookie['name']}: {cookie_error}")
             
-            print("📝 Cookies após injeção:", self.driver.get_cookies())
-            
-            # Aguarda e tira screenshot
-            time.sleep(3)
-            self.take_screenshot('after_cookies')
-            
-            # Acessa a página principal do TikTok
-            print("🔄 Acessando página principal do TikTok...")
-            self.driver.get('https://www.tiktok.com')
+            # Aguarda mais tempo após adicionar os cookies
             time.sleep(5)
             
-            # Verifica redirecionamentos
-            current_url = self.driver.current_url
-            print(f"📍 URL atual: {current_url}")
+            # Recarrega a página
+            self.driver.refresh()
+            time.sleep(5)  # Aguarda a página recarregar completamente
             
-            self.take_screenshot('after_main_page')
-            
-            # Verifica se os cookies foram mantidos
+            # Verifica se os cookies foram adicionados corretamente
             actual_cookies = self.driver.get_cookies()
-            print("📝 Cookies após navegação:", actual_cookies)
-            
             session_cookies = [c for c in actual_cookies if c['name'] in ['sessionid', 'sessionid_ss', 'sid_tt']]
             
             if not session_cookies:
                 print("❌ Cookies de sessão não foram encontrados após a injeção")
-                self.take_screenshot('cookies_not_found')
                 return False
                 
-            print("✅ Cookies injetados com sucesso!")
             return True
             
         except Exception as e:
             print(f"❌ Erro ao injetar sessão: {e}")
-            self.take_screenshot('session_injection_error')
             return False
         
     def test_login(self):
@@ -244,27 +125,22 @@ class TikTokBot:
             if not self.driver:
                 return False
 
-            self.take_screenshot('before_login_test')
-            
             # Primeiro verifica se temos os cookies necessários
             cookies = self.driver.get_cookies()
             session_cookies = [c for c in cookies if c['name'] in ['sessionid', 'sessionid_ss', 'sid_tt']]
             
             if not session_cookies:
                 print("❌ Cookies de sessão não encontrados")
-                self.take_screenshot('missing_cookies')
                 return False
                 
             # Tenta acessar a página de upload do TikTok Studio (mais seguro que /upload)
             self.driver.get('https://www.tiktok.com/tiktokstudio/upload')
             time.sleep(5)  # Aguarda mais tempo para carregar
-            self.take_screenshot('after_studio_access')
             
             # Verifica se fomos redirecionados para a página de login
             current_url = self.driver.current_url.lower()
             if 'login' in current_url or 'sign-in' in current_url:
                 print("❌ Redirecionado para página de login")
-                self.take_screenshot('redirected_to_login')
                 return False
 
             try:
@@ -272,17 +148,14 @@ class TikTokBot:
                 WebDriverWait(self.driver, 10).until(
                     EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]'))
                 )
-                self.take_screenshot('login_successful')
                 print("✅ Sessão válida e funcionando")
                 return True
             except:
                 print("❌ Não foi possível encontrar elementos da página de upload")
-                self.take_screenshot('upload_elements_not_found')
                 return False
 
         except Exception as e:
             print(f"❌ Erro ao testar login: {e}")
-            self.take_screenshot('login_test_error')
             return False
 
     def download_video(self):
