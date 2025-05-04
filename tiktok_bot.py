@@ -114,13 +114,38 @@ class TikTokBot:
         """Injeta os cookies de sessão para autenticação"""
         try:
             if not self.driver:
+                print("❌ Driver não inicializado")
                 return False
                 
             # Primeiro acessa o TikTok para garantir que o domínio está correto
-            self.driver.get('https://www.tiktok.com')
+            print("🌐 Acessando TikTok...")
+            try:
+                self.driver.set_page_load_timeout(30)  # Aumenta o timeout para 30 segundos
+                self.driver.get('https://www.tiktok.com')
+            except Exception as e:
+                print(f"❌ Erro ao acessar TikTok: {e}")
+                # Tenta uma segunda vez
+                print("🔄 Tentando novamente...")
+                time.sleep(2)
+                self.driver.get('https://www.tiktok.com')
+                
             time.sleep(5)  # Aumentado para 5 segundos
             
+            # Verifica se a página carregou corretamente
+            if 'tiktok' not in self.driver.current_url.lower():
+                print(f"❌ Página não carregou corretamente. URL atual: {self.driver.current_url}")
+                # Salva screenshot para diagnóstico
+                if self.server_mode:
+                    try:
+                        screenshot_path = os.path.join(tempfile.gettempdir(), "tiktok_error.png")
+                        self.driver.save_screenshot(screenshot_path)
+                        print(f"📸 Screenshot salvo em: {screenshot_path}")
+                    except:
+                        pass
+                return False
+            
             # Adiciona cookies essenciais
+            print("🍪 Adicionando cookies de sessão...")
             cookies = [
                 {
                     'name': 'sessionid',
@@ -142,18 +167,37 @@ class TikTokBot:
                 }
             ]
             
+            print(f"🔑 Usando session_id: {self.session_id[:5]}...{self.session_id[-5:]} (mascarado)")
+            
             # Adiciona cada cookie
+            cookie_success = True
             for cookie in cookies:
                 try:
                     self.driver.add_cookie(cookie)
                     time.sleep(1)  # Pequena pausa entre cada cookie
                 except Exception as cookie_error:
-                    print(f"⚠️ Aviso ao adicionar cookie {cookie['name']}: {cookie_error}")
+                    print(f"⚠️ Erro ao adicionar cookie {cookie['name']}: {cookie_error}")
+                    cookie_success = False
+            
+            if not cookie_success:
+                print("⚠️ Alguns cookies não foram adicionados. Tentando método alternativo...")
+                # Tenta limpar cookies e acessar novamente
+                self.driver.delete_all_cookies()
+                self.driver.get('https://www.tiktok.com')
+                time.sleep(3)
+                for cookie in cookies:
+                    try:
+                        self.driver.add_cookie(cookie)
+                        time.sleep(1)
+                    except Exception as e:
+                        print(f"❌ Falha no método alternativo: {e}")
+                        return False
             
             # Aguarda mais tempo após adicionar os cookies
             time.sleep(5)
             
             # Recarrega a página
+            print("🔄 Recarregando a página com cookies...")
             self.driver.refresh()
             time.sleep(5)  # Aguarda a página recarregar completamente
             
@@ -164,8 +208,18 @@ class TikTokBot:
             if not session_cookies:
                 print("❌ Cookies de sessão não foram encontrados após a injeção")
                 return False
-                
-            return True
+            
+            print(f"✅ Cookies encontrados: {[c['name'] for c in session_cookies]}")
+            
+            # Verifica se está logado procurando elementos específicos de usuário logado
+            try:
+                # Verifica se existe algum elemento que indique login bem-sucedido
+                self.driver.find_element(By.CSS_SELECTOR, 'div[data-e2e="profile-icon"]')
+                print("✅ Sessão válida - Elemento de perfil encontrado")
+                return True
+            except:
+                # Se não encontrar, tenta acessar a página de upload para verificar
+                return self.test_login()
             
         except Exception as e:
             print(f"❌ Erro ao injetar sessão: {e}")
@@ -186,24 +240,55 @@ class TikTokBot:
                 return False
                 
             # Tenta acessar a página de upload do TikTok Studio (mais seguro que /upload)
-            self.driver.get('https://www.tiktok.com/tiktokstudio/upload')
-            time.sleep(5)  # Aguarda mais tempo para carregar
+            print("🧪 Testando acesso a TikTokStudio...")
+            try:
+                self.driver.set_page_load_timeout(30)  # Aumenta o timeout para 30 segundos
+                self.driver.get('https://www.tiktok.com/tiktokstudio/upload')
+            except Exception as e:
+                print(f"⚠️ Timeout ao acessar página de upload: {e}")
+                print("🔄 Tentando novamente com mais tempo...")
+                self.driver.set_page_load_timeout(60)  # Aumenta para 60 segundos
+                self.driver.get('https://www.tiktok.com/tiktokstudio/upload')
+                
+            time.sleep(8)  # Aguarda mais tempo para carregar
+            
+            # Salva screenshot para debug
+            if self.server_mode:
+                try:
+                    screenshot_path = os.path.join(tempfile.gettempdir(), "tiktok_debug.png")
+                    self.driver.save_screenshot(screenshot_path)
+                    print(f"📸 Screenshot salvo em: {screenshot_path}")
+                except Exception as ss_error:
+                    print(f"⚠️ Não foi possível salvar screenshot: {ss_error}")
             
             # Verifica se fomos redirecionados para a página de login
             current_url = self.driver.current_url.lower()
             if 'login' in current_url or 'sign-in' in current_url:
-                print("❌ Redirecionado para página de login")
+                print(f"❌ Redirecionado para página de login: {current_url}")
                 return False
 
             try:
                 # Tenta encontrar elementos que só aparecem quando logado
-                WebDriverWait(self.driver, 10).until(
+                print("🔍 Buscando elemento de upload...")
+                # Aumenta o timeout para 15 segundos
+                upload_element = WebDriverWait(self.driver, 15).until(
                     EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]'))
                 )
                 print("✅ Sessão válida e funcionando")
                 return True
-            except:
-                print("❌ Não foi possível encontrar elementos da página de upload")
+            except Exception as e:
+                print(f"❌ Não foi possível encontrar elementos da página de upload: {e}")
+                # Imprime mais informações sobre o estado da página
+                print(f"🌐 URL atual: {self.driver.current_url}")
+                
+                # Verifica se há mensagem de erro de login
+                try:
+                    error_messages = self.driver.find_elements(By.XPATH, "//div[contains(text(), 'log in') or contains(text(), 'Login')]")
+                    if error_messages:
+                        print("❌ Página solicita login - sessão inválida ou expirada")
+                except:
+                    pass
+                    
                 return False
 
         except Exception as e:
@@ -519,39 +604,93 @@ class TikTokBot:
         """Posta o vídeo no TikTok"""
         try:
             # Navega até a página de upload do TikTok Studio
-            self.driver.get('https://www.tiktok.com/tiktokstudio/upload')
+            print("🌐 Acessando página de upload...")
+            try:
+                self.driver.set_page_load_timeout(30)
+                self.driver.get('https://www.tiktok.com/tiktokstudio/upload')
+            except Exception as e:
+                print(f"⚠️ Timeout ao acessar página de upload: {e}")
+                print("🔄 Tentando novamente...")
+                time.sleep(2)
+                self.driver.get('https://www.tiktok.com/tiktokstudio/upload')
+                
             time.sleep(random.uniform(3, 5))
+            
+            # Verifica novamente se está logado
+            if 'login' in self.driver.current_url.lower() or 'sign-in' in self.driver.current_url.lower():
+                print("⚠️ Redirecionado para login durante tentativa de upload")
+                if not self.inject_session():
+                    print("❌ Falha ao reinjetar sessão")
+                    return False
+                
+                # Navega novamente para a página de upload
+                self.driver.get('https://www.tiktok.com/tiktokstudio/upload')
+                time.sleep(5)
 
             # Faz upload do vídeo
+            print("📂 Baixando vídeo...")
             video_path = self.download_video()
             if not video_path:
+                print("❌ Falha ao baixar vídeo")
                 return False
 
-            file_input = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]'))
-            )
-            file_input.send_keys(video_path)
+            print("📤 Fazendo upload do vídeo...")
+            try:
+                file_input = WebDriverWait(self.driver, 15).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]'))
+                )
+                file_input.send_keys(video_path)
+            except Exception as e:
+                print(f"❌ Erro ao encontrar campo de upload: {e}")
+                # Salva screenshot para diagnóstico
+                if self.server_mode:
+                    try:
+                        screenshot_path = os.path.join(tempfile.gettempdir(), "upload_error.png")
+                        self.driver.save_screenshot(screenshot_path)
+                        print(f"📸 Screenshot salvo em: {screenshot_path}")
+                    except:
+                        pass
+                return False
 
             # Espera o vídeo carregar (15 segundos)
             print("⌛ Aguardando o vídeo carregar...")
             time.sleep(15)
 
+            # Verifica se existem erros de upload
+            try:
+                error_elements = self.driver.find_elements(By.XPATH, "//div[contains(text(), 'error') or contains(text(), 'Error') or contains(text(), 'failed') or contains(text(), 'Failed')]")
+                if error_elements:
+                    for elem in error_elements:
+                        if elem.is_displayed():
+                            print(f"❌ Erro detectado no upload: {elem.text}")
+                            return False
+            except:
+                pass
+
             # Limpa e insere a legenda
-            caption_field = self._clear_caption_field()
-            if not caption_field:
-                return False
+            print("✏️ Configurando legenda...")
+            try:
+                caption_field = self._clear_caption_field()
+                if not caption_field:
+                    print("❌ Não foi possível limpar o campo de legenda")
+                    return False
 
-            if self.video_caption:
-                caption_field.send_keys(self.video_caption)
-                caption_field.send_keys(Keys.ENTER)  # Pula uma linha após a legenda
-                time.sleep(0.5)
+                if self.video_caption:
+                    caption_field.send_keys(self.video_caption)
+                    caption_field.send_keys(Keys.ENTER)  # Pula uma linha após a legenda
+                    time.sleep(0.5)
 
-            # Adiciona as hashtags
-            for hashtag in self.hashtags:
-                self._insert_hashtag(caption_field, hashtag)
+                # Adiciona as hashtags
+                for hashtag in self.hashtags:
+                    print(f"🔖 Adicionando hashtag: #{hashtag}")
+                    self._insert_hashtag(caption_field, hashtag)
+            except Exception as e:
+                print(f"⚠️ Erro ao configurar legenda: {e}")
+                # Continua mesmo com erro na legenda
 
             # Seleciona a música
             if self.music_name:
+                print(f"🎵 Selecionando música: {self.music_name}")
                 if not self._select_music():
                     print("⚠️ Não foi possível selecionar a música desejada")
 
@@ -560,26 +699,62 @@ class TikTokBot:
             time.sleep(1)
 
             # Clica no botão de publicar
-            post_button = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, "/html/body/div[1]/div/div/div[2]/div[2]/div/div/div/div[4]/div/button[1]"))
-            )
-            post_button.click()
+            print("🚀 Publicando vídeo...")
+            try:
+                post_button = WebDriverWait(self.driver, 15).until(
+                    EC.element_to_be_clickable((By.XPATH, "/html/body/div[1]/div/div/div[2]/div[2]/div/div/div/div[4]/div/button[1]"))
+                )
+                post_button.click()
+            except Exception as e:
+                print(f"❌ Erro ao clicar no botão de publicar: {e}")
+                
+                # Tenta encontrar o botão de outra forma
+                try:
+                    print("🔍 Procurando botão de publicar de outra forma...")
+                    # Tenta encontrar por texto parcial
+                    buttons = self.driver.find_elements(By.XPATH, "//button[contains(text(), 'Post') or contains(text(), 'Publicar')]")
+                    for button in buttons:
+                        if button.is_displayed():
+                            self.driver.execute_script("arguments[0].click();", button)
+                            print("✅ Botão alternativo encontrado e clicado")
+                            break
+                except Exception as alt_e:
+                    print(f"❌ Falha ao usar método alternativo: {alt_e}")
+                    return False
 
             # Aguarda um tempo para o upload completar
             print("⌛ Aguardando a publicação completar...")
-            time.sleep(10)  # Tempo fixo de espera após clicar em publicar
+            time.sleep(15)  # Aumentado para 15 segundos
+            
+            # Verifica se há mensagem de sucesso
+            try:
+                success_elements = self.driver.find_elements(By.XPATH, "//div[contains(text(), 'success') or contains(text(), 'Success') or contains(text(), 'published') or contains(text(), 'Published')]")
+                if success_elements:
+                    for elem in success_elements:
+                        if elem.is_displayed():
+                            print(f"✅ Sucesso detectado: {elem.text}")
+            except:
+                pass
             
             # Limpa o arquivo temporário
             try:
                 os.unlink(video_path)
+                print("🧹 Arquivo temporário removido")
             except:
                 pass
 
             print("✅ Processo de postagem concluído!")
-            return True  # Sempre retorna True após clicar no botão de publicar
+            return True
 
         except Exception as e:
             print(f"❌ Erro ao postar vídeo: {e}")
+            if self.server_mode:
+                try:
+                    screenshot_path = os.path.join(tempfile.gettempdir(), "post_error.png")
+                    self.driver.save_screenshot(screenshot_path)
+                    print(f"📸 Screenshot de erro salvo em: {screenshot_path}")
+                except:
+                    pass
             return False
             
     def wait_for_user_input(self):
