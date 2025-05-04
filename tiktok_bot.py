@@ -35,49 +35,63 @@ class TikTokBot:
     def setup_browser(self):
         """Configura o navegador com as opções necessárias para evitar detecção"""
         try:
-            options = uc.ChromeOptions()
-            
-            # Configurações essenciais para servidor Linux
-            options.add_argument('--disable-blink-features=AutomationControlled')
-            options.add_argument('--disable-dev-shm-usage')
-            options.add_argument('--no-sandbox')
-            options.add_argument('--window-size=1920,1080')
-            options.add_argument('--start-maximized')
-            options.add_argument('--disable-infobars')
-            options.add_argument('--disable-notifications')
-            options.add_argument('--disable-gpu')
-            options.add_argument('--disable-software-rasterizer')
-            options.add_argument('--no-first-run')
-            options.add_argument('--no-service-autorun')
-            options.add_argument('--password-store=basic')
-            options.add_argument('--no-default-browser-check')
-            options.add_argument('--disable-extensions')
-            options.add_argument('--disable-popup-blocking')
-            options.add_argument('--ignore-certificate-errors')
-            options.add_argument('--enable-precise-memory-info')
-            options.add_argument('--disable-default-apps')
-            options.add_argument('--incognito')
-            
-            # User Agent mais comum
-            options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-            
+            def create_options():
+                options = uc.ChromeOptions()
+                # Configurações essenciais para servidor Linux
+                options.add_argument('--disable-blink-features=AutomationControlled')
+                options.add_argument('--disable-dev-shm-usage')
+                options.add_argument('--no-sandbox')
+                options.add_argument('--window-size=1920,1080')
+                options.add_argument('--start-maximized')
+                options.add_argument('--disable-infobars')
+                options.add_argument('--disable-notifications')
+                options.add_argument('--disable-gpu')
+                options.add_argument('--disable-software-rasterizer')
+                options.add_argument('--no-first-run')
+                options.add_argument('--no-service-autorun')
+                options.add_argument('--password-store=basic')
+                options.add_argument('--no-default-browser-check')
+                options.add_argument('--disable-extensions')
+                options.add_argument('--disable-popup-blocking')
+                options.add_argument('--ignore-certificate-errors')
+                options.add_argument('--enable-precise-memory-info')
+                options.add_argument('--disable-default-apps')
+                options.add_argument('--incognito')
+                options.add_argument('--headless')
+                
+                # User Agent mais comum
+                options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36')
+                return options
+
+            # Primeira tentativa: usar a versão 136 (atual do servidor)
             try:
                 self.driver = uc.Chrome(
-                    options=options,
-                    version_main=120,  # Versão mais estável
-                    headless=True,
-                    driver_executable_path=None,  # Deixa o uc_driver encontrar automaticamente
-                    browser_executable_path=None  # Deixa o uc_driver encontrar automaticamente
-                )
-            except Exception as browser_error:
-                print(f"❌ Erro ao iniciar Chrome: {browser_error}")
-                # Tenta novamente sem especificar a versão
-                self.driver = uc.Chrome(
-                    options=options,
+                    options=create_options(),
+                    version_main=136,
                     headless=True,
                     driver_executable_path=None,
                     browser_executable_path=None
                 )
+            except Exception as e:
+                print(f"⚠️ Tentativa com Chrome 136 falhou: {e}")
+                # Segunda tentativa: deixar o undetected-chromedriver detectar a versão
+                try:
+                    self.driver = uc.Chrome(
+                        options=create_options(),
+                        headless=True,
+                        driver_executable_path=None,
+                        browser_executable_path=None
+                    )
+                except Exception as e2:
+                    print(f"⚠️ Tentativa sem versão específica falhou: {e2}")
+                    # Última tentativa: forçar uma versão anterior
+                    self.driver = uc.Chrome(
+                        options=create_options(),
+                        version_main=120,
+                        headless=True,
+                        driver_executable_path=None,
+                        browser_executable_path=None
+                    )
             
             # Configura timeouts do Selenium
             self.driver.set_page_load_timeout(30)
