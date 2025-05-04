@@ -1,6 +1,6 @@
-# Bot TikTok para Servidores
+# Bot TikTok
 
-Este bot automatiza a publicação de vídeos no TikTok, funcionando tanto em Windows quanto em servidores Linux.
+Este bot automatiza a publicação de vídeos no TikTok.
 
 ## Requisitos
 
@@ -9,96 +9,83 @@ Este bot automatiza a publicação de vídeos no TikTok, funcionando tanto em Wi
 - Acesso à Internet
 - Conta TikTok com cookies de sessão válidos
 
-## Instalação em Servidor Linux
+## Instalação
 
-### Método Automático
+### Windows
 
-1. Dê permissão de execução ao script:
-```bash
-chmod +x setup_server.sh
-```
-
-2. Execute o script como root:
-```bash
-sudo ./setup_server.sh
-```
-
-### Instalação Manual
-
-1. Instale Google Chrome:
-```bash
-wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
-sudo apt-get update
-sudo apt-get install -y google-chrome-stable
-```
-
-2. Instale dependências para display virtual:
-```bash
-sudo apt-get install -y xvfb xorg xserver-xorg-video-dummy
-```
-
-3. Instale dependências Python:
+1. Instale o Python 3.8 ou superior
+2. Instale o Google Chrome
+3. Instale as dependências Python:
 ```bash
 pip install -r requirements.txt
 ```
 
-## Uso
+### Servidor Linux
 
-### Em Servidores (Headless)
-
+1. Dê permissão de execução ao script:
 ```bash
-python tiktok_bot.py server
+chmod +x run_server.sh
 ```
 
-### Em Ambiente de Desenvolvimento
+2. Execute o script como root:
+```bash
+sudo ./run_server.sh
+```
+
+Este script irá:
+- Instalar Python 3 (se necessário)
+- Instalar Google Chrome (se necessário)
+- Instalar Xvfb e PyVirtualDisplay
+- Instalar as dependências Python
+- Executar o bot em modo servidor
+
+## Uso
+
+### Windows (Ambiente de desenvolvimento)
+
+Edite os parâmetros no arquivo `tiktok_bot.py` (ou importe a classe para seu código) e execute:
 
 ```bash
 python tiktok_bot.py
 ```
 
-## Parâmetros de Configuração
+### Servidor Linux
 
-Edite os parâmetros no script ou importe a classe para usar em seu código:
+```bash
+python tiktok_bot.py server
+```
+
+## Parâmetros de Configuração
 
 ```python
 params = {
-    'session_id': 'seu_session_id_tiktok',
-    'sid_tt': 'seu_sid_tt_tiktok',  # Opcional
+    'session_id': 'seu_session_id_tiktok',  # Obrigatório
+    'sid_tt': 'seu_sid_tt_tiktok',          # Opcional (usa session_id como padrão)
     'video_url': 'url_do_video_para_upload',
     'video_caption': 'legenda do vídeo',
     'hashtags': ['hashtag1', 'hashtag2'],
     'music_name': 'nome da música para pesquisar',
     'music_volume': 50  # 0-100
 }
-
-bot = TikTokBot(params, headless=True)
 ```
 
 ## Troubleshooting
 
+### Problemas com Cookies
+
+Certifique-se de fornecer um `session_id` válido do TikTok. Você pode obtê-lo:
+1. Faça login no TikTok em seu navegador
+2. Abra as Ferramentas de Desenvolvedor (F12)
+3. Vá para a aba "Aplicativo" ou "Storage" > Cookies
+4. Encontre o cookie `sessionid`
+
 ### Compatibilidade de Versões
 
-Verifique a versão do Chrome instalada:
-```bash
-google-chrome --version
-```
-
-Use essa versão principal no código:
+Se encontrar problemas com o ChromeDriver, modifique esta linha no código:
 ```python
-self.driver = uc.Chrome(options=options, version_main=135, headless=self.headless)
+self.driver = uc.Chrome(options=options, version_main=135, headless=False)
 ```
 
-### Problemas de Display
-
-Se encontrar erros relacionados ao display, verifique se o Xvfb está instalado e funcionando:
-```bash
-sudo apt-get install -y xvfb
-```
-
-### Screenshots para Debug
-
-O bot salva screenshots quando encontra problemas no servidor:
-```
-/tmp/tiktok_debug.png
-``` 
+Substitua o número 135 pela versão principal do seu Chrome:
+- Chrome 135.x.x.x → use 135
+- Chrome 114.x.x.x → use 114 

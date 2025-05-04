@@ -5,6 +5,8 @@ import random
 import requests
 import tempfile
 import json
+import os
+import platform
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -12,11 +14,18 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 from difflib import SequenceMatcher
 
+# Apenas para Linux - tenta importar, se falhar não tem problema
+try:
+    from pyvirtualdisplay import Display
+except ImportError:
+    Display = None
+
 class TikTokBot:
-    def __init__(self, params):
+    def __init__(self, params, server_mode=False):
         """
         Inicializa o bot com os parâmetros recebidos
         params: dicionário com os parâmetros da API
+        server_mode: se True, está rodando em modo servidor (Linux)
         """
         if not params:
             raise ValueError("Parâmetros não podem ser nulos")
@@ -29,12 +38,26 @@ class TikTokBot:
         self.music_name = params.get('music_name', '')
         self.music_volume = int(params.get('music_volume', 50))
         
+        # Modo servidor
+        self.server_mode = server_mode
+        self.is_linux = platform.system().lower() == 'linux'
+        self.display = None
+        
         self.driver = None
         self.setup_browser()
 
     def setup_browser(self):
         """Configura o navegador com as opções necessárias para evitar detecção"""
         try:
+            # Se estiver no modo servidor e for Linux, configura display virtual
+            if self.server_mode and self.is_linux and Display:
+                try:
+                    self.display = Display(visible=0, size=(1920, 1080))
+                    self.display.start()
+                    print("✅ Display virtual iniciado")
+                except Exception as e:
+                    print(f"⚠️ Não foi possível iniciar o display virtual: {e}")
+            
             options = uc.ChromeOptions()
             options.add_argument('--disable-blink-features=AutomationControlled')
             options.add_argument('--disable-dev-shm-usage')
@@ -50,14 +73,43 @@ class TikTokBot:
             ]
             options.add_argument(f'user-agent={random.choice(user_agents)}')
             
-            # Iniciando Chrome sem modo headless
-            self.driver = uc.Chrome(options=options, version_main=135, headless=False)
+            # Configurações adicionais para servidor Linux
+            if self.server_mode and self.is_linux:
+                options.add_argument('--disable-gpu')
+                options.add_argument('--headless=new')
+            
+            # Iniciando Chrome
+            try:
+                self.driver = uc.Chrome(options=options, version_main=135, headless=False)
+            except Exception as e:
+                if self.is_linux:
+                    print(f"⚠️ Erro ao iniciar com uc.Chrome: {e}")
+                    print("⚠️ Tentando com Chrome padrão...")
+                    options = webdriver.ChromeOptions()
+                    options.add_argument('--no-sandbox')
+                    options.add_argument('--disable-dev-shm-usage')
+                    if self.server_mode:
+                        options.add_argument('--headless=new')
+                    self.driver = webdriver.Chrome(options=options)
+                else:
+                    raise e
+                
             print("✅ Navegador iniciado com sucesso!")
             return True
         except Exception as e:
             print(f"❌ Erro ao configurar o navegador: {e}")
+            self.cleanup_resources()
             return False
         
+    def cleanup_resources(self):
+        """Limpa recursos abertos como display virtual"""
+        if self.display:
+            try:
+                self.display.stop()
+                print("✅ Display virtual encerrado")
+            except:
+                pass
+                
     def inject_session(self):
         """Injeta os cookies de sessão para autenticação"""
         try:
@@ -543,12 +595,19 @@ class TikTokBot:
             if self.driver:
                 self.driver.quit()
                 print("✅ Navegador fechado com sucesso!")
+            
+            # Limpa recursos como display virtual
+            self.cleanup_resources()
         except Exception as e:
             print(f"❌ Erro ao fechar o navegador: {e}")
 
 if __name__ == "__main__":
     bot = None
     try:
+        # Verifica se está em modo servidor (argumento de linha de comando)
+        import sys
+        server_mode = len(sys.argv) > 1 and sys.argv[1] == 'server'
+        
         params = {
             'session_id': 'your_session_id',
             'video_url': 'your_video_url',
@@ -557,13 +616,16 @@ if __name__ == "__main__":
             'music_name': 'your_music_name',
             'music_volume': 50
         }
-        bot = TikTokBot(params)
+        
+        # Passa o parâmetro server_mode
+        bot = TikTokBot(params, server_mode=server_mode)
         if bot.inject_session():
             if bot.test_login():
                 print("✅ Bot iniciado com sucesso!")
                 bot.post_video()
-                # Aguarda input do usuário antes de fechar
-                bot.wait_for_user_input()
+                # Em modo servidor não aguarda input do usuário
+                if not server_mode:
+                    bot.wait_for_user_input()
             else:
                 print("❌ Falha ao fazer login. Verifique as credenciais.")
         else:
@@ -571,5 +633,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"❌ Erro ao iniciar o bot: {e}")
     finally:
-        if bot and input("Deseja fechar o navegador? (s/n): ").lower() == 's':
-            bot.close()
+        if bot:
+            if server_mode or input("Deseja fechar o navegador? (s/n): ").lower() == 's':
+                bot.close()
