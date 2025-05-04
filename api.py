@@ -31,12 +31,12 @@ def post_video():
         # Configuração dos parâmetros com valores padrão
         bot_params = {
             'session_id': data['session_id'],
-            'sid_tt': data.get('sid_tt', data['session_id']),  # Usa session_id como fallback
+            'sid_tt': data.get('sid_tt', data['session_id']),
             'video_url': data['video_url'],
-            'video_caption': data.get('video_caption', ''),  # Opcional
-            'hashtags': data.get('hashtags', []),  # Opcional, lista vazia por padrão
-            'music_name': data.get('music_name', ''),  # Opcional
-            'music_volume': data.get('music_volume', 50)  # Opcional, 50% por padrão
+            'video_caption': data.get('video_caption', ''),
+            'hashtags': data.get('hashtags', []),
+            'music_name': data.get('music_name', ''),
+            'music_volume': data.get('music_volume', 50)
         }
 
         # Validações adicionais
@@ -56,38 +56,57 @@ def post_video():
         # Instancia o bot com os parâmetros
         bot = TikTokBot(bot_params)
         
-        # Executa o processo de postagem
-        if bot.inject_session():
-            if bot.test_login():
-                if bot.post_video():
-                    bot.close()
-                    return jsonify({
-                        "status": "success",
-                        "message": "Video posted successfully"
-                    }), 200
-                else:
-                    bot.close()
-                    return jsonify({
-                        "error": "Post failed",
-                        "message": "Failed to post the video"
-                    }), 500
-            else:
+        try:
+            # Executa o processo de postagem
+            if not bot.inject_session():
+                bot.close()
+                return jsonify({
+                    "error": "Session injection failed",
+                    "message": "Could not inject session"
+                }), 500
+
+            if not bot.test_login():
                 bot.close()
                 return jsonify({
                     "error": "Authentication failed",
                     "message": "Invalid session ID"
                 }), 401
-        else:
+
+            # Tenta postar o vídeo
+            post_result = bot.post_video()
+            
+            # Fecha o navegador independente do resultado
             bot.close()
-            return jsonify({
-                "error": "Session injection failed",
-                "message": "Could not inject session"
-            }), 500
+            
+            if post_result:
+                return jsonify({
+                    "status": "success",
+                    "message": "Video posted successfully"
+                }), 200
+            else:
+                return jsonify({
+                    "error": "Post failed",
+                    "message": "Failed to post the video"
+                }), 500
+
+        finally:
+            # Garante que o navegador seja fechado mesmo em caso de erro
+            if bot:
+                try:
+                    bot.close()
+                except:
+                    pass
 
     except Exception as e:
+        # Log do erro para debug
+        print(f"Erro na API: {str(e)}")
+        
         # Garante que o bot seja fechado em caso de erro
         if 'bot' in locals():
-            bot.close()
+            try:
+                bot.close()
+            except:
+                pass
         
         return jsonify({
             "error": "Internal server error",
@@ -95,4 +114,4 @@ def post_video():
         }), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=3090, debug=False)
+    app.run(host='0.0.0.0', port=3090)

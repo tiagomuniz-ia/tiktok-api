@@ -480,8 +480,9 @@ class TikTokBot:
             )
             file_input.send_keys(video_path)
 
-            # Espera o vídeo carregar
-            time.sleep(random.uniform(5, 8))
+            # Espera o vídeo carregar (15 segundos)
+            print("⌛ Aguardando o vídeo carregar...")
+            time.sleep(15)
 
             # Limpa e insere a legenda
             caption_field = self._clear_caption_field()
@@ -506,19 +507,24 @@ class TikTokBot:
             self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
             time.sleep(1)
 
+            # Clica no botão de publicar
             post_button = WebDriverWait(self.driver, 10).until(
                 EC.element_to_be_clickable((By.XPATH, "/html/body/div[1]/div/div/div[2]/div[2]/div/div/div/div[4]/div/button[1]"))
             )
             post_button.click()
 
-            # Espera o upload completar
-            time.sleep(random.uniform(10, 15))
-
+            # Aguarda um tempo para o upload completar
+            print("⌛ Aguardando a publicação completar...")
+            time.sleep(10)  # Tempo fixo de espera após clicar em publicar
+            
             # Limpa o arquivo temporário
-            os.unlink(video_path)
+            try:
+                os.unlink(video_path)
+            except:
+                pass
 
-            print("✅ Vídeo postado com sucesso!")
-            return True
+            print("✅ Processo de postagem concluído!")
+            return True  # Sempre retorna True após clicar no botão de publicar
 
         except Exception as e:
             print(f"❌ Erro ao postar vídeo: {e}")
