@@ -31,6 +31,7 @@ def post_video():
         # Configuração dos parâmetros com valores padrão
         bot_params = {
             'session_id': data['session_id'],
+            'sid_tt': data.get('sid_tt', data['session_id']),  # Usa session_id como fallback
             'video_url': data['video_url'],
             'video_caption': data.get('video_caption', ''),  # Opcional
             'hashtags': data.get('hashtags', []),  # Opcional, lista vazia por padrão

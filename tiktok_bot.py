@@ -22,6 +22,7 @@ class TikTokBot:
             raise ValueError("Parâmetros não podem ser nulos")
             
         self.session_id = params['session_id']
+        self.sid_tt = params.get('sid_tt', self.session_id)  # Usa session_id como fallback
         self.video_url = params['video_url']
         self.video_caption = params.get('video_caption', '')
         self.hashtags = params.get('hashtags', [])
@@ -41,8 +42,6 @@ class TikTokBot:
             options.add_argument('--window-size=1920,1080')
             options.add_argument('--disable-infobars')
             options.add_argument('--disable-notifications')
-            options.add_argument('--headless')  # Modo headless
-            options.add_argument('--disable-gpu')  # Necessário para alguns ambientes headless
             
             # Adiciona um user agent aleatório
             user_agents = [
@@ -51,7 +50,8 @@ class TikTokBot:
             ]
             options.add_argument(f'user-agent={random.choice(user_agents)}')
             
-            self.driver = uc.Chrome(options=options, version_main=135, headless=True)
+            # Iniciando Chrome sem modo headless
+            self.driver = uc.Chrome(options=options, version_main=135, headless=False)
             print("✅ Navegador iniciado com sucesso!")
             return True
         except Exception as e:
@@ -64,18 +64,57 @@ class TikTokBot:
             if not self.driver:
                 return False
                 
+            # Primeiro acessa o TikTok para garantir que o domínio está correto
             self.driver.get('https://www.tiktok.com')
-            time.sleep(random.uniform(3, 5))
+            time.sleep(5)  # Aumentado para 5 segundos
             
-            self.driver.add_cookie({
-                'name': 'sessionid',
-                'value': self.session_id,
-                'domain': '.tiktok.com'
-            })
+            # Adiciona cookies essenciais
+            cookies = [
+                {
+                    'name': 'sessionid',
+                    'value': self.session_id,
+                    'domain': '.tiktok.com',
+                    'path': '/'
+                },
+                {
+                    'name': 'sessionid_ss',
+                    'value': self.session_id,
+                    'domain': '.tiktok.com',
+                    'path': '/'
+                },
+                {
+                    'name': 'sid_tt',
+                    'value': self.sid_tt,  # Usando o sid_tt fornecido
+                    'domain': '.tiktok.com',
+                    'path': '/'
+                }
+            ]
             
-            time.sleep(random.uniform(2, 4))
+            # Adiciona cada cookie
+            for cookie in cookies:
+                try:
+                    self.driver.add_cookie(cookie)
+                    time.sleep(1)  # Pequena pausa entre cada cookie
+                except Exception as cookie_error:
+                    print(f"⚠️ Aviso ao adicionar cookie {cookie['name']}: {cookie_error}")
+            
+            # Aguarda mais tempo após adicionar os cookies
+            time.sleep(5)
+            
+            # Recarrega a página
             self.driver.refresh()
+            time.sleep(5)  # Aguarda a página recarregar completamente
+            
+            # Verifica se os cookies foram adicionados corretamente
+            actual_cookies = self.driver.get_cookies()
+            session_cookies = [c for c in actual_cookies if c['name'] in ['sessionid', 'sessionid_ss', 'sid_tt']]
+            
+            if not session_cookies:
+                print("❌ Cookies de sessão não foram encontrados após a injeção")
+                return False
+                
             return True
+            
         except Exception as e:
             print(f"❌ Erro ao injetar sessão: {e}")
             return False
@@ -85,21 +124,36 @@ class TikTokBot:
         try:
             if not self.driver:
                 return False
-                
-            self.driver.get('https://www.tiktok.com/upload')
+
+            # Primeiro verifica se temos os cookies necessários
+            cookies = self.driver.get_cookies()
+            session_cookies = [c for c in cookies if c['name'] in ['sessionid', 'sessionid_ss', 'sid_tt']]
             
-            # Espera até que algum elemento da página de upload apareça
-            wait = WebDriverWait(self.driver, 10)
-            wait.until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
-            
-            time.sleep(random.uniform(3, 5))
-            
-            if 'login' in self.driver.current_url.lower():
-                print("❌ Sessão inválida ou expirada")
+            if not session_cookies:
+                print("❌ Cookies de sessão não encontrados")
                 return False
                 
-            print("✅ Sessão válida e funcionando")
-            return True
+            # Tenta acessar a página de upload do TikTok Studio (mais seguro que /upload)
+            self.driver.get('https://www.tiktok.com/tiktokstudio/upload')
+            time.sleep(5)  # Aguarda mais tempo para carregar
+            
+            # Verifica se fomos redirecionados para a página de login
+            current_url = self.driver.current_url.lower()
+            if 'login' in current_url or 'sign-in' in current_url:
+                print("❌ Redirecionado para página de login")
+                return False
+
+            try:
+                # Tenta encontrar elementos que só aparecem quando logado
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]'))
+                )
+                print("✅ Sessão válida e funcionando")
+                return True
+            except:
+                print("❌ Não foi possível encontrar elementos da página de upload")
+                return False
+
         except Exception as e:
             print(f"❌ Erro ao testar login: {e}")
             return False
