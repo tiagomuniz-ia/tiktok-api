@@ -42,6 +42,12 @@ class TikTokBot:
             options.add_argument('--window-size=1920,1080')
             options.add_argument('--disable-infobars')
             options.add_argument('--disable-notifications')
+            options.add_argument('--headless')  # Modo headless para servidor
+            options.add_argument('--disable-gpu')  # Necessário para headless
+            options.add_argument('--no-first-run')  # Evita primeira execução
+            options.add_argument('--no-default-browser-check')  # Evita check de browser padrão
+            options.add_argument('--disable-extensions')  # Desativa extensões
+            options.add_argument('--disable-popup-blocking')  # Permite popups
             
             # Adiciona um user agent aleatório
             user_agents = [
@@ -50,8 +56,7 @@ class TikTokBot:
             ]
             options.add_argument(f'user-agent={random.choice(user_agents)}')
             
-            # Iniciando Chrome sem modo headless
-            self.driver = uc.Chrome(options=options, version_main=135, headless=False)
+            self.driver = uc.Chrome(options=options, version_main=135, headless=True)
             print("✅ Navegador iniciado com sucesso!")
             return True
         except Exception as e:
