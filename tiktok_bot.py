@@ -42,90 +42,71 @@ class TikTokBot:
             options.add_argument('--window-size=1920,1080')
             options.add_argument('--disable-infobars')
             options.add_argument('--disable-notifications')
-            options.add_argument('--headless=new')  # Nova sintaxe para headless
-            options.add_argument('--disable-gpu')
-            options.add_argument('--no-first-run')
-            options.add_argument('--no-default-browser-check')
-            options.add_argument('--disable-extensions')
-            options.add_argument('--disable-popup-blocking')
-            options.add_argument('--start-maximized')
-            options.add_argument('--single-process')
-            options.add_argument('--disable-setuid-sandbox')
             
-            user_agents = [
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
-            ]
-            options.add_argument(f'user-agent={random.choice(user_agents)}')
+            # Opções específicas para Linux
+            options.add_argument('--disable-gpu')
+            options.add_argument('--disable-setuid-sandbox')
+            options.add_argument('--disable-software-rasterizer')
+            
+            # Comentamos o headless para debug - pode ser descomentado depois
+            # options.add_argument('--headless=new')
+            
+            # User agent comum
+            options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36')
             
             self.driver = uc.Chrome(options=options, version_main=135)
-            self.driver.set_page_load_timeout(30)  # Adiciona timeout
+            self.driver.set_page_load_timeout(60)
             print("✅ Navegador iniciado com sucesso!")
             return True
         except Exception as e:
             print(f"❌ Erro ao configurar o navegador: {e}")
             return False
-        
+
     def inject_session(self):
         """Injeta os cookies de sessão para autenticação"""
         try:
             if not self.driver:
                 return False
 
-            # Acessa uma página do TikTok primeiro
-            self.driver.get('https://www.tiktok.com/@tiktok')
-            time.sleep(3)
-            
-            # Limpa cookies existentes
-            self.driver.delete_all_cookies()
+            # Acessa primeiro uma página não-TikTok para evitar cookies iniciais
+            self.driver.get('about:blank')
             time.sleep(1)
             
-            # Adiciona cookies essenciais
-            cookies = [
-                {
-                    'name': 'sessionid',
-                    'value': self.session_id,
-                    'domain': '.tiktok.com',
-                    'path': '/',
-                    'secure': True,
-                    'httpOnly': True
-                },
-                {
-                    'name': 'sessionid_ss',
-                    'value': self.session_id,
-                    'domain': '.tiktok.com',
-                    'path': '/',
-                    'secure': True,
-                    'httpOnly': True
-                },
-                {
-                    'name': 'sid_tt',
-                    'value': self.sid_tt,
-                    'domain': '.tiktok.com',
-                    'path': '/',
-                    'secure': True,
-                    'httpOnly': True
-                }
-            ]
+            # Executa script para definir localStorage e sessionStorage
+            self.driver.execute_script("""
+                window.localStorage.clear();
+                window.sessionStorage.clear();
+            """)
             
-            # Adiciona cada cookie
-            for cookie in cookies:
-                try:
-                    self.driver.add_cookie(cookie)
-                except Exception as cookie_error:
-                    print(f"⚠️ Aviso ao adicionar cookie {cookie['name']}: {cookie_error}")
-                    return False
-
-            # Navega para a página principal e aguarda
-            self.driver.get('https://www.tiktok.com')
+            # Limpa todos os cookies atuais
+            self.driver.delete_all_cookies()
+            
+            # Navega para TikTok (importante fazer isso antes de adicionar cookies em domínios TikTok)
+            self.driver.get('https://www.tiktok.com/')
             time.sleep(5)
             
-            # Verifica se está na página de login
+            # Injeta cookies via JavaScript para evitar restrições do Selenium
+            inject_script = f"""
+            document.cookie = "sessionid={self.session_id}; domain=.tiktok.com; path=/; secure; SameSite=None";
+            document.cookie = "sessionid_ss={self.session_id}; domain=.tiktok.com; path=/; secure; SameSite=None";
+            document.cookie = "sid_tt={self.sid_tt}; domain=.tiktok.com; path=/; secure; SameSite=None";
+            """
+            self.driver.execute_script(inject_script)
+            
+            # Força um refresh explícito
+            self.driver.refresh()
+            time.sleep(5)
+            
+            # Verifica autenticação
             current_url = self.driver.current_url.lower()
             if 'login' in current_url or 'sign-in' in current_url:
                 print("❌ Redirecionado para página de login")
+                # Mostra os cookies atuais para debug
+                current_cookies = self.driver.get_cookies()
+                print(f"Cookies atuais: {current_cookies}")
                 return False
                 
+            print("✅ Autenticação realizada com sucesso")
             return True
             
         except Exception as e:
