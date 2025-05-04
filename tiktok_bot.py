@@ -211,34 +211,16 @@ class TikTokBot:
             if not self.driver:
                 return False
 
-            # Primeiro verifica se temos os cookies necessários
+            # Verifica se temos os cookies necessários
             cookies = self.driver.get_cookies()
             session_cookies = [c for c in cookies if c['name'] in ['sessionid', 'sessionid_ss', 'sid_tt']]
             
             if not session_cookies:
                 print("❌ Cookies de sessão não encontrados")
                 return False
-                
-            # Tenta acessar a página de upload do TikTok Studio (mais seguro que /upload)
-            self.driver.get('https://www.tiktok.com/tiktokstudio/upload')
-            time.sleep(5)  # Aguarda mais tempo para carregar
-            
-            # Verifica se fomos redirecionados para a página de login
-            current_url = self.driver.current_url.lower()
-            if 'login' in current_url or 'sign-in' in current_url:
-                print("❌ Redirecionado para página de login")
-                return False
 
-            try:
-                # Tenta encontrar elementos que só aparecem quando logado
-                WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]'))
-                )
-                print("✅ Sessão válida e funcionando")
-                return True
-            except:
-                print("❌ Não foi possível encontrar elementos da página de upload")
-                return False
+            print("✅ Cookies de sessão encontrados, prosseguindo...")
+            return True
 
         except Exception as e:
             print(f"❌ Erro ao testar login: {e}")
@@ -552,70 +534,112 @@ class TikTokBot:
     def post_video(self):
         """Posta o vídeo no TikTok"""
         try:
-            # Navega até a página de upload do TikTok Studio
-            self.driver.get('https://www.tiktok.com/tiktokstudio/upload')
-            time.sleep(random.uniform(3, 5))
-
-            # Faz upload do vídeo
+            # Lista de URLs para tentar o upload
+            upload_urls = [
+                'https://www.tiktok.com/upload?lang=pt-BR',
+                'https://www.tiktok.com/creator',
+                'https://www.tiktok.com/studio/upload?lang=pt-BR',
+                'https://www.tiktok.com/tiktokstudio/upload'
+            ]
+            
+            # Baixa o vídeo primeiro
             video_path = self.download_video()
             if not video_path:
                 return False
 
-            file_input = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]'))
-            )
-            file_input.send_keys(video_path)
+            # Tenta cada URL de upload até conseguir
+            for url in upload_urls:
+                try:
+                    print(f"🌐 Tentando fazer upload em: {url}")
+                    self.driver.get(url)
+                    time.sleep(5)
 
-            # Espera o vídeo carregar (15 segundos)
-            print("⌛ Aguardando o vídeo carregar...")
-            time.sleep(15)
+                    # Procura pelo input de arquivo
+                    try:
+                        file_input = WebDriverWait(self.driver, 10).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]'))
+                        )
+                        
+                        # Se encontrou o input, tenta fazer o upload
+                        file_input.send_keys(video_path)
+                        
+                        print("⌛ Aguardando o vídeo carregar...")
+                        time.sleep(15)  # Tempo maior para vídeos grandes
+                        
+                        try:
+                            # Tenta limpar e inserir a legenda
+                            caption_field = self._clear_caption_field()
+                            if caption_field:
+                                if self.video_caption:
+                                    caption_field.send_keys(self.video_caption)
+                                    caption_field.send_keys(Keys.ENTER)
+                                    time.sleep(0.5)
 
-            # Limpa e insere a legenda
-            caption_field = self._clear_caption_field()
-            if not caption_field:
-                return False
+                                # Adiciona as hashtags
+                                for hashtag in self.hashtags:
+                                    self._insert_hashtag(caption_field, hashtag)
 
-            if self.video_caption:
-                caption_field.send_keys(self.video_caption)
-                caption_field.send_keys(Keys.ENTER)  # Pula uma linha após a legenda
-                time.sleep(0.5)
+                                # Seleciona a música se necessário
+                                if self.music_name:
+                                    if not self._select_music():
+                                        print("⚠️ Não foi possível selecionar a música desejada")
 
-            # Adiciona as hashtags
-            for hashtag in self.hashtags:
-                self._insert_hashtag(caption_field, hashtag)
+                                # Rola a página para baixo
+                                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                                time.sleep(1)
 
-            # Seleciona a música
-            if self.music_name:
-                if not self._select_music():
-                    print("⚠️ Não foi possível selecionar a música desejada")
+                                # Procura pelo botão de publicar em diferentes formatos
+                                post_button_xpaths = [
+                                    "//button[contains(text(), 'Publicar')]",
+                                    "//button[contains(text(), 'Post')]",
+                                    "//div[contains(@class, 'btn-post')]//button",
+                                    "/html/body/div[1]/div/div/div[2]/div[2]/div/div/div/div[4]/div/button[1]"
+                                ]
 
-            # Rola a página para baixo e clica em publicar
-            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(1)
+                                for xpath in post_button_xpaths:
+                                    try:
+                                        post_button = WebDriverWait(self.driver, 5).until(
+                                            EC.element_to_be_clickable((By.XPATH, xpath))
+                                        )
+                                        post_button.click()
+                                        print("✅ Botão de publicar clicado com sucesso")
+                                        
+                                        # Aguarda um tempo para o upload completar
+                                        print("⌛ Aguardando a publicação completar...")
+                                        time.sleep(10)
+                                        
+                                        # Limpa o arquivo temporário
+                                        try:
+                                            os.unlink(video_path)
+                                        except:
+                                            pass
 
-            # Clica no botão de publicar
-            post_button = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, "/html/body/div[1]/div/div/div[2]/div[2]/div/div/div/div[4]/div/button[1]"))
-            )
-            post_button.click()
+                                        print("✅ Processo de postagem concluído!")
+                                        return True
 
-            # Aguarda um tempo para o upload completar
-            print("⌛ Aguardando a publicação completar...")
-            time.sleep(10)  # Tempo fixo de espera após clicar em publicar
-            
-            # Limpa o arquivo temporário
-            try:
-                os.unlink(video_path)
-            except:
-                pass
+                                    except Exception as button_error:
+                                        continue
 
-            print("✅ Processo de postagem concluído!")
-            return True  # Sempre retorna True após clicar no botão de publicar
+                        except Exception as caption_error:
+                            print(f"⚠️ Erro ao processar legenda/hashtags: {caption_error}")
+                            continue
+
+                    except Exception as upload_error:
+                        print(f"⚠️ Erro ao fazer upload do vídeo em {url}: {upload_error}")
+                        continue
+
+                except Exception as url_error:
+                    print(f"⚠️ Erro ao acessar {url}: {url_error}")
+                    continue
+
+            # Se chegou aqui, nenhuma URL funcionou
+            print("❌ Não foi possível fazer upload do vídeo em nenhuma URL")
+            return False
 
         except Exception as e:
             print(f"❌ Erro ao postar vídeo: {e}")
             return False
-            
+
     def wait_for_user_input(self):
         """Aguarda input do usuário para continuar"""
         print("\n✨ Navegador mantido aberto para debug.")
