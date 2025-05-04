@@ -5,6 +5,9 @@ import random
 import requests
 import tempfile
 import json
+import os
+import sys
+import platform
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -12,11 +15,19 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 from difflib import SequenceMatcher
 
+# Apenas para Linux
+try:
+    from pyvirtualdisplay import Display
+except ImportError:
+    Display = None
+
 class TikTokBot:
-    def __init__(self, params):
+    def __init__(self, params, headless=False, linux_mode=None):
         """
         Inicializa o bot com os parâmetros recebidos
         params: dicionário com os parâmetros da API
+        headless: se True, executa em modo headless (sem interface gráfica)
+        linux_mode: força o modo Linux se True, força o modo Windows se False, auto-detecta se None
         """
         if not params:
             raise ValueError("Parâmetros não podem ser nulos")
@@ -29,12 +40,37 @@ class TikTokBot:
         self.music_name = params.get('music_name', '')
         self.music_volume = int(params.get('music_volume', 50))
         
+        # Novas configurações
+        self.headless = headless
+        
+        # Detecta o sistema operacional ou usa o valor forçado
+        if linux_mode is None:
+            self.is_linux = platform.system().lower() == 'linux'
+        else:
+            self.is_linux = linux_mode
+            
+        self.display = None
         self.driver = None
+        
+        print(f"Sistema operacional: {platform.system()}")
+        print(f"Modo Linux: {self.is_linux}")
+        print(f"Modo Headless: {self.headless}")
+        
         self.setup_browser()
 
     def setup_browser(self):
         """Configura o navegador com as opções necessárias para evitar detecção"""
         try:
+            # Configura display virtual se estiver no Linux
+            if self.is_linux and self.headless and Display:
+                try:
+                    self.display = Display(visible=0, size=(1920, 1080))
+                    self.display.start()
+                    print("✅ Display virtual iniciado")
+                except Exception as e:
+                    print(f"⚠️ Não foi possível iniciar o display virtual: {e}")
+                    print("⚠️ Tentando continuar sem display virtual...")
+            
             options = uc.ChromeOptions()
             options.add_argument('--disable-blink-features=AutomationControlled')
             options.add_argument('--disable-dev-shm-usage')
@@ -43,21 +79,61 @@ class TikTokBot:
             options.add_argument('--disable-infobars')
             options.add_argument('--disable-notifications')
             
-            # Adiciona um user agent aleatório
+            # Adiciona user agent apropriado para o sistema
             user_agents = [
+                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
+            ] if self.is_linux else [
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
             ]
             options.add_argument(f'user-agent={random.choice(user_agents)}')
             
-            # Iniciando Chrome sem modo headless
-            self.driver = uc.Chrome(options=options, version_main=135, headless=False)
+            # Configurações para Linux
+            if self.is_linux:
+                options.add_argument('--disable-gpu')
+                # Se estiver em modo headless mas não estiver usando o display virtual
+                if self.headless and not self.display:
+                    options.add_argument('--headless=new')
+            
+            # Localização temporária para o Chrome
+            temp_dir = tempfile.mkdtemp()
+            options.add_argument(f'--user-data-dir={temp_dir}')
+            
+            # Para Linux, especifica o caminho do driver
+            if self.is_linux:
+                try:
+                    self.driver = uc.Chrome(options=options, version_main=135, headless=False)
+                except Exception as e:
+                    print(f"⚠️ Erro ao iniciar com uc.Chrome: {e}")
+                    print("⚠️ Tentando iniciar com webdriver.Chrome...")
+                    options = webdriver.ChromeOptions()
+                    options.add_argument('--no-sandbox')
+                    options.add_argument('--disable-dev-shm-usage')
+                    options.add_argument('--headless=new') if self.headless else None
+                    
+                    self.driver = webdriver.Chrome(options=options)
+            else:
+                # Para Windows
+                self.driver = uc.Chrome(options=options, version_main=135, headless=self.headless)
+                
             print("✅ Navegador iniciado com sucesso!")
             return True
         except Exception as e:
             print(f"❌ Erro ao configurar o navegador: {e}")
+            # Tenta limpar recursos se houve erro
+            self.clean_up()
             return False
         
+    def clean_up(self):
+        """Limpa recursos abertos"""
+        if self.display:
+            try:
+                self.display.stop()
+                print("✅ Display virtual encerrado")
+            except:
+                pass
+                
     def inject_session(self):
         """Injeta os cookies de sessão para autenticação"""
         try:
@@ -65,6 +141,7 @@ class TikTokBot:
                 return False
                 
             # Primeiro acessa o TikTok para garantir que o domínio está correto
+            print("Acessando TikTok...")
             self.driver.get('https://www.tiktok.com')
             time.sleep(5)  # Aumentado para 5 segundos
             
@@ -91,6 +168,7 @@ class TikTokBot:
             ]
             
             # Adiciona cada cookie
+            print("Adicionando cookies...")
             for cookie in cookies:
                 try:
                     self.driver.add_cookie(cookie)
@@ -102,6 +180,7 @@ class TikTokBot:
             time.sleep(5)
             
             # Recarrega a página
+            print("Recarregando a página...")
             self.driver.refresh()
             time.sleep(5)  # Aguarda a página recarregar completamente
             
@@ -112,7 +191,8 @@ class TikTokBot:
             if not session_cookies:
                 print("❌ Cookies de sessão não foram encontrados após a injeção")
                 return False
-                
+            
+            print(f"Cookies encontrados: {[c['name'] for c in session_cookies]}")    
             return True
             
         except Exception as e:
@@ -134,24 +214,37 @@ class TikTokBot:
                 return False
                 
             # Tenta acessar a página de upload do TikTok Studio (mais seguro que /upload)
+            print("Testando acesso a TikTokStudio...")
             self.driver.get('https://www.tiktok.com/tiktokstudio/upload')
-            time.sleep(5)  # Aguarda mais tempo para carregar
+            time.sleep(8)  # Aguarda mais tempo para carregar em servidores
+            
+            # Salva screenshot para debug
+            if self.is_linux:
+                try:
+                    screenshot_path = os.path.join(tempfile.gettempdir(), "tiktok_debug.png")
+                    self.driver.save_screenshot(screenshot_path)
+                    print(f"Screenshot salvo em: {screenshot_path}")
+                except Exception as ss_error:
+                    print(f"⚠️ Não foi possível salvar screenshot: {ss_error}")
             
             # Verifica se fomos redirecionados para a página de login
             current_url = self.driver.current_url.lower()
             if 'login' in current_url or 'sign-in' in current_url:
-                print("❌ Redirecionado para página de login")
+                print(f"❌ Redirecionado para página de login: {current_url}")
                 return False
 
             try:
                 # Tenta encontrar elementos que só aparecem quando logado
-                WebDriverWait(self.driver, 10).until(
+                print("Buscando elemento de upload...")
+                upload_element = WebDriverWait(self.driver, 15).until(
                     EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]'))
                 )
                 print("✅ Sessão válida e funcionando")
                 return True
-            except:
-                print("❌ Não foi possível encontrar elementos da página de upload")
+            except Exception as e:
+                print(f"❌ Não foi possível encontrar elementos da página de upload: {e}")
+                # Imprime mais informações sobre o estado da página
+                print(f"URL atual: {self.driver.current_url}")
                 return False
 
         except Exception as e:
@@ -161,6 +254,7 @@ class TikTokBot:
     def download_video(self):
         """Baixa o vídeo da URL fornecida"""
         try:
+            print(f"Baixando vídeo de: {self.video_url}")
             response = requests.get(self.video_url, stream=True)
             if response.status_code == 200:
                 temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
@@ -168,6 +262,7 @@ class TikTokBot:
                     if chunk:
                         temp_file.write(chunk)
                 temp_file.close()
+                print(f"✅ Vídeo baixado para: {temp_file.name}")
                 return temp_file.name
             else:
                 print(f"❌ Erro ao baixar vídeo. Status code: {response.status_code}")
@@ -538,32 +633,81 @@ class TikTokBot:
         input()
 
     def close(self):
-        """Fecha o navegador"""
+        """Fecha o navegador e limpa recursos"""
         try:
             if self.driver:
                 self.driver.quit()
                 print("✅ Navegador fechado com sucesso!")
+                
+            self.clean_up()
         except Exception as e:
-            print(f"❌ Erro ao fechar o navegador: {e}")
+            print(f"❌ Erro ao fechar recursos: {e}")
+
+def get_params_from_env():
+    """Obtém parâmetros das variáveis de ambiente para uso com Docker"""
+    session_id = os.environ.get('SESSION_ID')
+    
+    # Só continua se tiver ao menos o session_id
+    if not session_id:
+        return None
+        
+    # Obtém demais parâmetros
+    params = {
+        'session_id': session_id,
+        'sid_tt': os.environ.get('SID_TT', session_id),
+        'video_url': os.environ.get('VIDEO_URL', ''),
+        'video_caption': os.environ.get('VIDEO_CAPTION', ''),
+        'music_name': os.environ.get('MUSIC_NAME', ''),
+    }
+    
+    # Converte volume para inteiro se existir
+    music_volume = os.environ.get('MUSIC_VOLUME')
+    if music_volume:
+        try:
+            params['music_volume'] = int(music_volume)
+        except:
+            params['music_volume'] = 50
+    
+    # Processa hashtags (separadas por vírgula)
+    hashtags = os.environ.get('HASHTAGS', '')
+    if hashtags:
+        params['hashtags'] = [tag.strip() for tag in hashtags.split(',')]
+    else:
+        params['hashtags'] = []
+        
+    return params
 
 if __name__ == "__main__":
     bot = None
     try:
-        params = {
-            'session_id': 'your_session_id',
-            'video_url': 'your_video_url',
-            'video_caption': 'your_video_caption',
-            'hashtags': ['hashtag1', 'hashtag2'],
-            'music_name': 'your_music_name',
-            'music_volume': 50
-        }
-        bot = TikTokBot(params)
+        # Detecta automaticamente o ambiente
+        is_server = len(sys.argv) > 1 and sys.argv[1] == 'server'
+        headless_mode = is_server or (len(sys.argv) > 1 and sys.argv[1] == 'headless')
+        
+        print(f"Modo: {'Servidor/Headless' if headless_mode else 'Normal'}")
+        
+        # Tenta obter parâmetros de variáveis de ambiente (para Docker)
+        params = get_params_from_env()
+        
+        # Se não encontrou nas variáveis de ambiente, usa os valores padrão
+        if not params:
+            params = {
+                'session_id': 'your_session_id',
+                'video_url': 'your_video_url',
+                'video_caption': 'your_video_caption',
+                'hashtags': ['hashtag1', 'hashtag2'],
+                'music_name': 'your_music_name',
+                'music_volume': 50
+            }
+        
+        bot = TikTokBot(params, headless=headless_mode)
         if bot.inject_session():
             if bot.test_login():
                 print("✅ Bot iniciado com sucesso!")
                 bot.post_video()
-                # Aguarda input do usuário antes de fechar
-                bot.wait_for_user_input()
+                # Em modo servidor não precisa aguardar input
+                if not headless_mode:
+                    bot.wait_for_user_input()
             else:
                 print("❌ Falha ao fazer login. Verifique as credenciais.")
         else:
@@ -571,5 +715,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"❌ Erro ao iniciar o bot: {e}")
     finally:
-        if bot and input("Deseja fechar o navegador? (s/n): ").lower() == 's':
-            bot.close()
+        if bot:
+            if headless_mode or input("Deseja fechar o navegador? (s/n): ").lower() == 's':
+                bot.close()

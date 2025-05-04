@@ -1,36 +1,43 @@
-FROM python:3.12-slim
+FROM python:3.9-slim
 
-# Instala as dependências do sistema
+# Instala dependências do sistema
 RUN apt-get update && apt-get install -y \
     wget \
-    gnupg2 \
-    apt-transport-https \
-    ca-certificates \
-    python3-distutils \
-    python3-setuptools \
-    && wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list \
+    gnupg \
+    xvfb \
+    xorg \
+    xserver-xorg-video-dummy \
+    unzip \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instala Google Chrome
+RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
     && apt-get update \
     && apt-get install -y google-chrome-stable \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Define o diretório de trabalho
+# Configura diretório de trabalho
 WORKDIR /app
 
-# Copia os arquivos necessários
+# Copia arquivos de requisitos
 COPY requirements.txt .
-COPY api.py .
-COPY tiktok_bot.py .
 
-# Instala setuptools primeiro
-RUN pip install --no-cache-dir setuptools
-
-# Instala as dependências Python
+# Instala dependências Python
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expõe a porta da API
-EXPOSE 3090
+# Copia o código
+COPY tiktok_bot.py .
 
-# Inicia a API
-CMD ["python", "api.py"]
+# Obtém a versão do Chrome para configurar o driver corretamente
+RUN echo "export CHROME_VERSION=\$(google-chrome --version | grep -oP 'Google Chrome \K[^ ]+')" >> /root/.bashrc \
+    && echo "export CHROMEDRIVER_VERSION=\$(echo \$CHROME_VERSION | cut -d '.' -f 1)" >> /root/.bashrc
+
+# Cria script de inicialização
+RUN echo '#!/bin/bash\nxvfb-run -a python tiktok_bot.py server' > /app/start.sh \
+    && chmod +x /app/start.sh
+
+# Comando padrão
+CMD ["/app/start.sh"]
