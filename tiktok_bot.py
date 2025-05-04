@@ -75,39 +75,55 @@ class TikTokBot:
         try:
             options = uc.ChromeOptions()
             
-            # Configurações básicas
-            options.add_argument('--disable-blink-features=AutomationControlled')
-            options.add_argument('--disable-dev-shm-usage')
-            options.add_argument('--no-sandbox')
-            options.add_argument('--window-size=1920,1080')
-            
-            # Configurações de headless
-            options.add_argument('--headless=new')  # Novo formato headless
-            options.add_argument('--disable-gpu')  # Necessário para headless
+            # Configurações de headless e GPU
+            options.add_argument('--headless=new')
+            options.add_argument('--disable-gpu')
             options.add_argument('--disable-software-rasterizer')
             
-            # Configurações adicionais de segurança
+            # Configurações de memória e sandbox
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-setuid-sandbox')
+            
+            # Configurações de janela e performance
+            options.add_argument('--window-size=1920,1080')
+            options.add_argument('--start-maximized')
+            options.add_argument('--disable-web-security')
+            options.add_argument('--ignore-certificate-errors')
+            
+            # Configurações anti-detecção
+            options.add_argument('--disable-blink-features=AutomationControlled')
+            options.add_argument("--disable-extensions")
             options.add_argument('--disable-infobars')
             options.add_argument('--disable-notifications')
-            options.add_argument('--disable-setuid-sandbox')
-            options.add_argument('--disable-web-security')
             
-            # Adiciona um user agent aleatório
-            user_agents = [
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
-            ]
-            options.add_argument(f'user-agent={random.choice(user_agents)}')
+            # Configurações de cookies e storage
+            options.add_argument('--enable-features=NetworkService,NetworkServiceInProcess')
+            options.add_argument('--disable-features=IsolateOrigins,site-per-process')
+            
+            # Configurações de cache e dados
+            options.add_argument('--disable-application-cache')
+            options.add_argument('--disable-offline-load-stale-cache')
+            options.add_argument('--disk-cache-size=0')
+            
+            # User agent mais recente e realista
+            options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36')
             
             # Configuração específica para ambiente containerizado
             self.driver = uc.Chrome(
                 options=options, 
-                version_main=135,
+                version_main=123,  # Versão mais recente
                 use_subprocess=True,
                 seleniumwire_options={
-                    'verify_ssl': False
+                    'verify_ssl': False,
+                    'disable_encoding': True  # Evita problemas com encoding
                 }
             )
+            
+            # Configura timeouts mais longos para ambiente de servidor
+            self.driver.set_page_load_timeout(30)
+            self.driver.implicitly_wait(10)
+            
             print("✅ Navegador iniciado com sucesso!")
             return True
         except Exception as e:
@@ -119,54 +135,94 @@ class TikTokBot:
         try:
             if not self.driver:
                 return False
-                
-            # Primeiro acessa o TikTok para garantir que o domínio está correto
-            self.driver.get('https://www.tiktok.com')
-            time.sleep(5)  # Aumentado para 5 segundos
-            self.take_screenshot('before_cookies')
             
-            # Adiciona cookies essenciais
+            print("🔄 Iniciando processo de injeção de cookies...")
+            
+            # Primeiro acessa uma página neutra do TikTok
+            self.driver.get('https://www.tiktok.com/robots.txt')
+            time.sleep(3)
+            self.take_screenshot('initial_page')
+            
+            print("📝 Cookies atuais antes da injeção:", self.driver.get_cookies())
+            
+            # Adiciona cookies essenciais com atributos expandidos
             cookies = [
                 {
                     'name': 'sessionid',
                     'value': self.session_id,
                     'domain': '.tiktok.com',
-                    'path': '/'
+                    'path': '/',
+                    'secure': True,
+                    'httpOnly': True,
+                    'sameSite': 'Lax'
                 },
                 {
                     'name': 'sessionid_ss',
                     'value': self.session_id,
                     'domain': '.tiktok.com',
-                    'path': '/'
+                    'path': '/',
+                    'secure': True,
+                    'httpOnly': True,
+                    'sameSite': 'Lax'
                 },
                 {
                     'name': 'sid_tt',
-                    'value': self.sid_tt,  # Usando o sid_tt fornecido
+                    'value': self.sid_tt,
                     'domain': '.tiktok.com',
-                    'path': '/'
+                    'path': '/',
+                    'secure': True,
+                    'httpOnly': True,
+                    'sameSite': 'Lax'
+                },
+                {
+                    'name': 'sid_guard',
+                    'value': f"{self.session_id}%7C1683216000%7C5184000%7CSat%2C+03-Jun-2023+13%3A33%3A20+GMT",
+                    'domain': '.tiktok.com',
+                    'path': '/',
+                    'secure': True,
+                    'httpOnly': True
                 }
             ]
             
-            # Adiciona cada cookie
-            for cookie in cookies:
-                try:
-                    self.driver.add_cookie(cookie)
-                    time.sleep(1)  # Pequena pausa entre cada cookie
-                except Exception as cookie_error:
-                    print(f"⚠️ Aviso ao adicionar cookie {cookie['name']}: {cookie_error}")
-                    self.take_screenshot(f'error_adding_cookie_{cookie["name"]}')
+            # Limpa cookies existentes
+            self.driver.delete_all_cookies()
+            time.sleep(1)
             
-            # Aguarda mais tempo após adicionar os cookies
-            time.sleep(5)
+            # Adiciona cada cookie com retry
+            for cookie in cookies:
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        self.driver.add_cookie(cookie)
+                        print(f"✅ Cookie {cookie['name']} adicionado com sucesso")
+                        break
+                    except Exception as cookie_error:
+                        print(f"⚠️ Tentativa {attempt + 1} falhou ao adicionar cookie {cookie['name']}: {cookie_error}")
+                        if attempt == max_retries - 1:
+                            print(f"❌ Falha ao adicionar cookie {cookie['name']} após {max_retries} tentativas")
+                        time.sleep(1)
+            
+            print("📝 Cookies após injeção:", self.driver.get_cookies())
+            
+            # Aguarda e tira screenshot
+            time.sleep(3)
             self.take_screenshot('after_cookies')
             
-            # Recarrega a página
-            self.driver.refresh()
-            time.sleep(5)  # Aguarda a página recarregar completamente
-            self.take_screenshot('after_refresh')
+            # Acessa a página principal do TikTok
+            print("🔄 Acessando página principal do TikTok...")
+            self.driver.get('https://www.tiktok.com')
+            time.sleep(5)
             
-            # Verifica se os cookies foram adicionados corretamente
+            # Verifica redirecionamentos
+            current_url = self.driver.current_url
+            print(f"📍 URL atual: {current_url}")
+            
+            self.take_screenshot('after_main_page')
+            
+            # Verifica se os cookies foram mantidos
             actual_cookies = self.driver.get_cookies()
+            print("📝 Cookies após navegação:", actual_cookies)
+            
             session_cookies = [c for c in actual_cookies if c['name'] in ['sessionid', 'sessionid_ss', 'sid_tt']]
             
             if not session_cookies:
@@ -174,6 +230,7 @@ class TikTokBot:
                 self.take_screenshot('cookies_not_found')
                 return False
                 
+            print("✅ Cookies injetados com sucesso!")
             return True
             
         except Exception as e:
