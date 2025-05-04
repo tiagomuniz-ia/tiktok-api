@@ -36,29 +36,56 @@ class TikTokBot:
         """Configura o navegador com as opções necessárias para evitar detecção"""
         try:
             options = uc.ChromeOptions()
+            
+            # Configurações essenciais para servidor Linux
             options.add_argument('--disable-blink-features=AutomationControlled')
             options.add_argument('--disable-dev-shm-usage')
             options.add_argument('--no-sandbox')
             options.add_argument('--window-size=1920,1080')
+            options.add_argument('--start-maximized')
             options.add_argument('--disable-infobars')
             options.add_argument('--disable-notifications')
-            options.add_argument('--headless')  # Modo headless para servidor
-            options.add_argument('--disable-gpu')  # Necessário para headless
-            options.add_argument('--no-first-run')  # Evita primeira execução
-            options.add_argument('--no-default-browser-check')  # Evita check de browser padrão
-            options.add_argument('--disable-extensions')  # Desativa extensões
-            options.add_argument('--disable-popup-blocking')  # Permite popups
+            options.add_argument('--disable-gpu')
+            options.add_argument('--disable-software-rasterizer')
+            options.add_argument('--no-first-run')
+            options.add_argument('--no-service-autorun')
+            options.add_argument('--password-store=basic')
+            options.add_argument('--no-default-browser-check')
+            options.add_argument('--disable-extensions')
+            options.add_argument('--disable-popup-blocking')
+            options.add_argument('--ignore-certificate-errors')
+            options.add_argument('--enable-precise-memory-info')
+            options.add_argument('--disable-default-apps')
+            options.add_argument('--incognito')
             
-            # Adiciona um user agent aleatório
-            user_agents = [
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
-            ]
-            options.add_argument(f'user-agent={random.choice(user_agents)}')
+            # User Agent mais comum
+            options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
             
-            self.driver = uc.Chrome(options=options, version_main=135, headless=True)
+            try:
+                self.driver = uc.Chrome(
+                    options=options,
+                    version_main=120,  # Versão mais estável
+                    headless=True,
+                    driver_executable_path=None,  # Deixa o uc_driver encontrar automaticamente
+                    browser_executable_path=None  # Deixa o uc_driver encontrar automaticamente
+                )
+            except Exception as browser_error:
+                print(f"❌ Erro ao iniciar Chrome: {browser_error}")
+                # Tenta novamente sem especificar a versão
+                self.driver = uc.Chrome(
+                    options=options,
+                    headless=True,
+                    driver_executable_path=None,
+                    browser_executable_path=None
+                )
+            
+            # Configura timeouts do Selenium
+            self.driver.set_page_load_timeout(30)
+            self.driver.implicitly_wait(10)
+            
             print("✅ Navegador iniciado com sucesso!")
             return True
+            
         except Exception as e:
             print(f"❌ Erro ao configurar o navegador: {e}")
             return False
