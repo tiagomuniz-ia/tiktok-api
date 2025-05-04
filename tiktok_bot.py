@@ -5,6 +5,8 @@ import random
 import requests
 import tempfile
 import json
+import os
+from datetime import datetime
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -29,8 +31,44 @@ class TikTokBot:
         self.music_name = params.get('music_name', '')
         self.music_volume = int(params.get('music_volume', 50))
         
+        # Configuração do diretório de screenshots
+        self.screenshots_dir = self._setup_screenshots_dir()
+        
         self.driver = None
         self.setup_browser()
+        
+    def _setup_screenshots_dir(self):
+        """Configura o diretório para salvar os screenshots"""
+        screenshots_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'debug_screenshots')
+        if not os.path.exists(screenshots_dir):
+            os.makedirs(screenshots_dir)
+        return screenshots_dir
+
+    def take_screenshot(self, name):
+        """Tira um screenshot da página atual"""
+        try:
+            if not self.driver:
+                return
+            
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"{timestamp}_{name}.png"
+            filepath = os.path.join(self.screenshots_dir, filename)
+            
+            # Tira o screenshot
+            self.driver.save_screenshot(filepath)
+            print(f"📸 Screenshot salvo: {filename}")
+            
+            # Também salva o HTML da página para debug
+            html_filename = f"{timestamp}_{name}.html"
+            html_filepath = os.path.join(self.screenshots_dir, html_filename)
+            with open(html_filepath, 'w', encoding='utf-8') as f:
+                f.write(self.driver.page_source)
+            print(f"📄 HTML salvo: {html_filename}")
+            
+            return filepath
+        except Exception as e:
+            print(f"⚠️ Erro ao tirar screenshot: {e}")
+            return None
 
     def setup_browser(self):
         """Configura o navegador com as opções necessárias para evitar detecção"""
@@ -80,6 +118,7 @@ class TikTokBot:
             # Primeiro acessa o TikTok para garantir que o domínio está correto
             self.driver.get('https://www.tiktok.com')
             time.sleep(5)  # Aumentado para 5 segundos
+            self.take_screenshot('before_cookies')
             
             # Adiciona cookies essenciais
             cookies = [
@@ -110,13 +149,16 @@ class TikTokBot:
                     time.sleep(1)  # Pequena pausa entre cada cookie
                 except Exception as cookie_error:
                     print(f"⚠️ Aviso ao adicionar cookie {cookie['name']}: {cookie_error}")
+                    self.take_screenshot(f'error_adding_cookie_{cookie["name"]}')
             
             # Aguarda mais tempo após adicionar os cookies
             time.sleep(5)
+            self.take_screenshot('after_cookies')
             
             # Recarrega a página
             self.driver.refresh()
             time.sleep(5)  # Aguarda a página recarregar completamente
+            self.take_screenshot('after_refresh')
             
             # Verifica se os cookies foram adicionados corretamente
             actual_cookies = self.driver.get_cookies()
@@ -124,12 +166,14 @@ class TikTokBot:
             
             if not session_cookies:
                 print("❌ Cookies de sessão não foram encontrados após a injeção")
+                self.take_screenshot('cookies_not_found')
                 return False
                 
             return True
             
         except Exception as e:
             print(f"❌ Erro ao injetar sessão: {e}")
+            self.take_screenshot('session_injection_error')
             return False
         
     def test_login(self):
@@ -138,22 +182,27 @@ class TikTokBot:
             if not self.driver:
                 return False
 
+            self.take_screenshot('before_login_test')
+            
             # Primeiro verifica se temos os cookies necessários
             cookies = self.driver.get_cookies()
             session_cookies = [c for c in cookies if c['name'] in ['sessionid', 'sessionid_ss', 'sid_tt']]
             
             if not session_cookies:
                 print("❌ Cookies de sessão não encontrados")
+                self.take_screenshot('missing_cookies')
                 return False
                 
             # Tenta acessar a página de upload do TikTok Studio (mais seguro que /upload)
             self.driver.get('https://www.tiktok.com/tiktokstudio/upload')
             time.sleep(5)  # Aguarda mais tempo para carregar
+            self.take_screenshot('after_studio_access')
             
             # Verifica se fomos redirecionados para a página de login
             current_url = self.driver.current_url.lower()
             if 'login' in current_url or 'sign-in' in current_url:
                 print("❌ Redirecionado para página de login")
+                self.take_screenshot('redirected_to_login')
                 return False
 
             try:
@@ -161,14 +210,17 @@ class TikTokBot:
                 WebDriverWait(self.driver, 10).until(
                     EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]'))
                 )
+                self.take_screenshot('login_successful')
                 print("✅ Sessão válida e funcionando")
                 return True
             except:
                 print("❌ Não foi possível encontrar elementos da página de upload")
+                self.take_screenshot('upload_elements_not_found')
                 return False
 
         except Exception as e:
             print(f"❌ Erro ao testar login: {e}")
+            self.take_screenshot('login_test_error')
             return False
 
     def download_video(self):

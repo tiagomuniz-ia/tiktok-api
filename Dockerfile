@@ -11,6 +11,10 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Cria diretório para screenshots
+RUN mkdir -p /app/debug_screenshots && \
+    chmod 777 /app/debug_screenshots
+
 # Copia os arquivos
 COPY . .
 
