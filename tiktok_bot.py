@@ -37,65 +37,106 @@ class TikTokBot:
         try:
             def create_options():
                 options = uc.ChromeOptions()
-                # Configurações essenciais para servidor Linux
+                
+                # Configurações anti-detecção mais avançadas
                 options.add_argument('--disable-blink-features=AutomationControlled')
                 options.add_argument('--disable-dev-shm-usage')
                 options.add_argument('--no-sandbox')
                 options.add_argument('--window-size=1920,1080')
                 options.add_argument('--start-maximized')
-                options.add_argument('--disable-infobars')
-                options.add_argument('--disable-notifications')
-                options.add_argument('--disable-gpu')
-                options.add_argument('--disable-software-rasterizer')
+                
+                # Características mais humanas
+                options.add_argument('--enable-javascript')
+                options.add_argument('--enable-cookies')
+                options.add_argument('--enable-dom-storage')
+                options.add_argument('--enable-web-security')
+                options.add_argument('--enable-gpu-rasterization')
+                options.add_argument('--use-gl=desktop')
+                options.add_argument('--enable-logging')
+                options.add_argument('--lang=pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7')
+                options.add_argument('--enable-audio')
+                options.add_argument('--enable-webgl')
+                
+                # Hardware fingerprinting mais realista
+                options.add_argument('--use-fake-ui-for-media-stream')
+                options.add_argument('--use-fake-device-for-media-stream')
+                options.add_argument('--disable-local-storage')
+                options.add_argument('--no-pings')
+                
+                # Configurações de privacidade que parecem mais humanas
+                options.add_argument('--disable-sync')
                 options.add_argument('--no-first-run')
-                options.add_argument('--no-service-autorun')
                 options.add_argument('--password-store=basic')
                 options.add_argument('--no-default-browser-check')
-                options.add_argument('--disable-extensions')
-                options.add_argument('--disable-popup-blocking')
-                options.add_argument('--ignore-certificate-errors')
-                options.add_argument('--enable-precise-memory-info')
-                options.add_argument('--disable-default-apps')
-                options.add_argument('--incognito')
-                options.add_argument('--headless')
+                options.add_argument('--disable-translate')
                 
-                # User Agent mais comum
-                options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36')
+                # User Agents mais realistas e atuais
+                user_agents = [
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+                    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Edg/136.0.0.0'
+                ]
+                options.add_argument(f'user-agent={random.choice(user_agents)}')
+                
+                # Define preferências do Chrome
+                prefs = {
+                    'profile.default_content_setting_values.notifications': 2,
+                    'profile.default_content_settings.popups': 0,
+                    'download.prompt_for_download': False,
+                    'download.directory_upgrade': True,
+                    'safebrowsing.enabled': True,
+                    'credentials_enable_service': False,
+                    'profile.password_manager_enabled': False,
+                    'intl.accept_languages': 'pt-BR,pt,en-US,en',
+                    'profile.managed_default_content_settings.images': 1,
+                }
+                options.add_experimental_option('prefs', prefs)
+                
+                # Remove sinais de automação
+                options.add_experimental_option('excludeSwitches', ['enable-automation', 'enable-logging'])
+                options.add_experimental_option('useAutomationExtension', False)
+                
                 return options
 
-            # Primeira tentativa: usar a versão 136 (atual do servidor)
+            # Primeira tentativa com a versão mais recente do Chrome
             try:
                 self.driver = uc.Chrome(
                     options=create_options(),
-                    version_main=136,
+                    version_main=136,  # Versão atual do Chrome
                     headless=True,
+                    use_subprocess=True,  # Mais estável no Linux
                     driver_executable_path=None,
-                    browser_executable_path=None
+                    browser_executable_path=None,
                 )
             except Exception as e:
                 print(f"⚠️ Tentativa com Chrome 136 falhou: {e}")
-                # Segunda tentativa: deixar o undetected-chromedriver detectar a versão
-                try:
-                    self.driver = uc.Chrome(
-                        options=create_options(),
-                        headless=True,
-                        driver_executable_path=None,
-                        browser_executable_path=None
-                    )
-                except Exception as e2:
-                    print(f"⚠️ Tentativa sem versão específica falhou: {e2}")
-                    # Última tentativa: forçar uma versão anterior
-                    self.driver = uc.Chrome(
-                        options=create_options(),
-                        version_main=120,
-                        headless=True,
-                        driver_executable_path=None,
-                        browser_executable_path=None
-                    )
+                # Segunda tentativa sem especificar versão
+                self.driver = uc.Chrome(
+                    options=create_options(),
+                    headless=True,
+                    use_subprocess=True,
+                    driver_executable_path=None,
+                    browser_executable_path=None
+                )
             
-            # Configura timeouts do Selenium
+            # Configura timeouts mais realistas
             self.driver.set_page_load_timeout(30)
             self.driver.implicitly_wait(10)
+            
+            # Adiciona JavaScript para mascarar ainda mais a automação
+            self.driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
+                'source': '''
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    Object.defineProperty(navigator, 'automation', {get: () => undefined});
+                    window.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'plugins', {
+                        get: () => [1, 2, 3, 4, 5]
+                    });
+                    Object.defineProperty(navigator, 'languages', {
+                        get: () => ['pt-BR', 'pt', 'en-US', 'en']
+                    });
+                '''
+            })
             
             print("✅ Navegador iniciado com sucesso!")
             return True
@@ -103,7 +144,7 @@ class TikTokBot:
         except Exception as e:
             print(f"❌ Erro ao configurar o navegador: {e}")
             return False
-        
+
     def inject_session(self):
         """Injeta os cookies de sessão para autenticação"""
         try:
@@ -111,10 +152,11 @@ class TikTokBot:
                 return False
 
             print("🔄 Iniciando injeção de cookies...")
-                
-            # Primeiro acessa o TikTok para garantir que o domínio está correto
-            self.driver.get('https://www.tiktok.com')
-            time.sleep(5)
+            
+            # Primeiro acessa uma página neutra do TikTok
+            print("🌐 Acessando TikTok...")
+            self.driver.get('https://www.tiktok.com/explore')
+            time.sleep(random.uniform(3, 5))
 
             # Define os cookies com todos os atributos necessários
             cookies = [
@@ -125,7 +167,8 @@ class TikTokBot:
                     'path': '/',
                     'secure': True,
                     'httpOnly': True,
-                    'sameSite': 'Lax'
+                    'sameSite': 'Lax',
+                    'expiry': int(time.time()) + 86400 * 30  # 30 dias
                 },
                 {
                     'name': 'sessionid_ss',
@@ -134,7 +177,8 @@ class TikTokBot:
                     'path': '/',
                     'secure': True,
                     'httpOnly': True,
-                    'sameSite': 'Lax'
+                    'sameSite': 'Lax',
+                    'expiry': int(time.time()) + 86400 * 30
                 },
                 {
                     'name': 'sid_tt',
@@ -143,11 +187,12 @@ class TikTokBot:
                     'path': '/',
                     'secure': True,
                     'httpOnly': True,
-                    'sameSite': 'Lax'
+                    'sameSite': 'Lax',
+                    'expiry': int(time.time()) + 86400 * 30
                 },
                 {
                     'name': 'tt_chain_token',
-                    'value': '',  # Valor vazio é normal
+                    'value': '',
                     'domain': '.tiktok.com',
                     'path': '/',
                     'secure': True,
@@ -155,9 +200,12 @@ class TikTokBot:
                 }
             ]
 
+            # Simula comportamento humano com pausas aleatórias
+            time.sleep(random.uniform(1, 2))
+            
             # Limpa cookies existentes
             self.driver.delete_all_cookies()
-            time.sleep(1)
+            time.sleep(random.uniform(1, 2))
             
             # Adiciona cada cookie com tratamento de erro individual
             cookies_added = 0
@@ -166,21 +214,20 @@ class TikTokBot:
                     print(f"🍪 Adicionando cookie: {cookie['name']}")
                     self.driver.add_cookie(cookie)
                     cookies_added += 1
-                    time.sleep(1)
+                    time.sleep(random.uniform(0.5, 1))  # Pausa aleatória entre cookies
                 except Exception as cookie_error:
                     print(f"⚠️ Erro ao adicionar cookie {cookie['name']}: {cookie_error}")
-                    # Continua mesmo se um cookie falhar
                     continue
             
             print(f"✅ {cookies_added} cookies adicionados com sucesso")
             
-            # Aguarda mais tempo após adicionar os cookies
-            time.sleep(3)
+            # Aguarda com tempo aleatório
+            time.sleep(random.uniform(2, 3))
             
             # Recarrega a página
             print("🔄 Recarregando página para aplicar cookies...")
             self.driver.refresh()
-            time.sleep(5)
+            time.sleep(random.uniform(3, 5))
             
             # Verifica se os cookies foram adicionados corretamente
             actual_cookies = self.driver.get_cookies()
@@ -188,7 +235,12 @@ class TikTokBot:
             
             print(f"ℹ️ Cookies encontrados após injeção: {[c['name'] for c in session_cookies]}")
             
-            if len(session_cookies) >= 2:  # Precisamos de pelo menos 2 cookies principais
+            if len(session_cookies) >= 2:
+                # Navega para uma página intermediária antes do upload
+                print("🌐 Navegando para página intermediária...")
+                self.driver.get('https://www.tiktok.com/@' + self.session_id.split(':')[0])
+                time.sleep(random.uniform(3, 5))
+                
                 print("✅ Cookies de sessão verificados com sucesso")
                 return True
             else:
@@ -198,7 +250,7 @@ class TikTokBot:
         except Exception as e:
             print(f"❌ Erro ao injetar sessão: {e}")
             return False
-        
+
     def test_login(self):
         """Verifica se a sessão está funcionando"""
         try:
