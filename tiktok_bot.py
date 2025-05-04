@@ -14,6 +14,352 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 from difflib import SequenceMatcher
+import re
+from enum import Enum
+from datetime import datetime
+
+class AutomationBlockType(Enum):
+    """Enumera os diferentes tipos de bloqueios de automação"""
+    CAPTCHA_CHALLENGE = "captcha_challenge"
+    SUSPICIOUS_ACTIVITY = "suspicious_activity"
+    RATE_LIMIT = "rate_limit" 
+    IP_BLOCK = "ip_block"
+    BROWSER_FINGERPRINT = "browser_fingerprint"
+    SESSION_EXPIRED = "session_expired"
+    UNUSUAL_ACTIVITY = "unusual_activity"
+    UNKNOWN = "unknown"
+
+class DetectionResult:
+    """Armazena resultado de uma detecção de bloqueio"""
+    def __init__(self, is_blocked=False, block_type=AutomationBlockType.UNKNOWN, details=None, timestamp=None, screenshot_path=None):
+        self.is_blocked = is_blocked
+        self.block_type = block_type
+        self.details = details or {}
+        self.timestamp = timestamp or datetime.now()
+        self.screenshot_path = screenshot_path
+        
+    def __str__(self):
+        return f"DetectionResult(blocked={self.is_blocked}, type={self.block_type.value}, details={self.details})"
+        
+    def get_recommendations(self):
+        """Retorna recomendações baseadas no tipo de bloqueio"""
+        recommendations = {
+            AutomationBlockType.CAPTCHA_CHALLENGE: [
+                "Use um proxy residencial diferente",
+                "Reduza a frequência de solicitações",
+                "Tente uma sessão mais recente/nova"
+            ],
+            AutomationBlockType.SUSPICIOUS_ACTIVITY: [
+                "Modifique o user agent",
+                "Aumente os tempos de espera",
+                "Use um proxy residencial",
+                "Utilize uma nova sessão de usuário"
+            ],
+            AutomationBlockType.RATE_LIMIT: [
+                "Espere pelo menos 30 minutos antes de tentar novamente",
+                "Reduza a frequência de solicitações",
+                "Use um proxy diferente"
+            ],
+            AutomationBlockType.IP_BLOCK: [
+                "Mude para um proxy residencial",
+                "Tente uma VPN de consumidor (não de datacenter)",
+                "Espere 24 horas antes de usar o mesmo IP"
+            ],
+            AutomationBlockType.BROWSER_FINGERPRINT: [
+                "Modifique os parâmetros de evasão de fingerprinting",
+                "Atualize para uma versão mais recente do Chrome",
+                "Tente desabilitar WebGL ou Canvas fingerprinting"
+            ],
+            AutomationBlockType.SESSION_EXPIRED: [
+                "Obtenha um novo cookie de sessão",
+                "Faça login novamente através do navegador e capture os novos cookies"
+            ],
+            AutomationBlockType.UNUSUAL_ACTIVITY: [
+                "Reduza a velocidade das interações",
+                "Adicione comportamentos mais humanos",
+                "Varie o padrão de movimentos do mouse",
+                "Use um proxy residencial"
+            ],
+            AutomationBlockType.UNKNOWN: [
+                "Verifique os logs para mais detalhes",
+                "Capture screenshots para análise manual",
+                "Tente uma sessão e IP completamente novos"
+            ]
+        }
+        
+        return recommendations.get(self.block_type, recommendations[AutomationBlockType.UNKNOWN])
+
+class AutomationDetector:
+    """Classe para detectar bloqueios de automação no TikTok"""
+    
+    def __init__(self, driver, debug_dir=None):
+        self.driver = driver
+        self.debug_dir = debug_dir
+        self.last_detection = None
+        self.detection_history = []
+        
+        # Cria diretório de debug se fornecido
+        if debug_dir and not os.path.exists(debug_dir):
+            try:
+                os.makedirs(debug_dir)
+            except Exception as e:
+                print(f"⚠️ Não foi possível criar diretório de debug: {e}")
+    
+    def take_screenshot(self, name_prefix="detection"):
+        """Captura screenshot para análise posterior"""
+        if not self.debug_dir:
+            return None
+            
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{name_prefix}_{timestamp}.png"
+            filepath = os.path.join(self.debug_dir, filename)
+            
+            self.driver.save_screenshot(filepath)
+            print(f"📸 Screenshot salvo: {filepath}")
+            return filepath
+        except Exception as e:
+            print(f"⚠️ Erro ao capturar screenshot: {e}")
+            return None
+    
+    def check_for_captcha(self):
+        """Verifica se há desafio de CAPTCHA na página"""
+        captcha_indicators = [
+            "//div[contains(text(), 'captcha') or contains(text(), 'CAPTCHA')]",
+            "//div[contains(@class, 'captcha')]",
+            "//iframe[contains(@src, 'captcha')]",
+            "//img[contains(@src, 'captcha')]",
+            "//div[contains(text(), 'verificação de segurança') or contains(text(), 'security check')]"
+        ]
+        
+        for indicator in captcha_indicators:
+            try:
+                elements = self.driver.find_elements(By.XPATH, indicator)
+                if elements and any(e.is_displayed() for e in elements):
+                    return True
+            except:
+                pass
+        
+        # Verifica no HTML da página
+        page_source = self.driver.page_source.lower()
+        captcha_terms = ['captcha', 'robot', 'human verification', 'security check', 
+                         'verificação', 'não é um robô', 'deslize para verificar']
+        
+        if any(term in page_source for term in captcha_terms):
+            return True
+            
+        return False
+    
+    def check_for_unusual_activity(self):
+        """Verifica se há mensagens de atividade suspeita"""
+        unusual_indicators = [
+            "//div[contains(text(), 'atividade suspeita') or contains(text(), 'suspicious activity')]",
+            "//div[contains(text(), 'comportamento incomum') or contains(text(), 'unusual behavior')]",
+            "//div[contains(text(), 'segurança') or contains(text(), 'security')]",
+            "//div[contains(text(), 'bloqueado') or contains(text(), 'blocked')]",
+            "//div[contains(text(), 'detectamos') or contains(text(), 'detected')]"
+        ]
+        
+        for indicator in unusual_indicators:
+            try:
+                elements = self.driver.find_elements(By.XPATH, indicator)
+                if elements and any(e.is_displayed() for e in elements):
+                    return True
+            except:
+                pass
+        
+        # Verifica no HTML da página
+        page_source = self.driver.page_source.lower()
+        unusual_terms = ['unusual activity', 'suspicious', 'atividade suspeita', 
+                         'security concern', 'blocked', 'bloqueado', 'try again later',
+                         'tente novamente mais tarde', 'temporarily restricted']
+        
+        if any(term in page_source for term in unusual_terms):
+            return True
+            
+        return False
+    
+    def check_for_session_issues(self):
+        """Verifica se há problemas com a sessão"""
+        session_indicators = [
+            "//div[contains(text(), 'sessão expirada') or contains(text(), 'session expired')]",
+            "//div[contains(text(), 'fazer login') or contains(text(), 'sign in')]",
+            "//div[contains(text(), 'não autorizado') or contains(text(), 'unauthorized')]",
+            "//button[contains(text(), 'Login') or contains(text(), 'Entrar')]"
+        ]
+        
+        for indicator in session_indicators:
+            try:
+                elements = self.driver.find_elements(By.XPATH, indicator)
+                if elements and any(e.is_displayed() for e in elements):
+                    return True
+            except:
+                pass
+        
+        # Verifica se fomos redirecionados para página de login
+        current_url = self.driver.current_url.lower()
+        login_patterns = ['/login', 'login', 'signin', 'sign-in', 'auth']
+        
+        if any(pattern in current_url for pattern in login_patterns):
+            return True
+            
+        return False
+    
+    def check_for_rate_limiting(self):
+        """Verifica se há sinais de rate limiting"""
+        rate_indicators = [
+            "//div[contains(text(), 'muitas solicitações') or contains(text(), 'too many requests')]",
+            "//div[contains(text(), 'tente novamente mais tarde') or contains(text(), 'try again later')]",
+            "//div[contains(text(), 'aguarde') or contains(text(), 'wait')]",
+            "//div[contains(text(), 'limite') or contains(text(), 'limit')]"
+        ]
+        
+        for indicator in rate_indicators:
+            try:
+                elements = self.driver.find_elements(By.XPATH, indicator)
+                if elements and any(e.is_displayed() for e in elements):
+                    return True
+            except:
+                pass
+        
+        # Verifica no HTML da página
+        page_source = self.driver.page_source.lower()
+        rate_terms = ['rate limit', 'too many requests', 'too many attempts', 
+                      'tente novamente mais tarde', 'try again later', '429']
+        
+        if any(term in page_source for term in rate_terms):
+            return True
+            
+        return False
+
+    def check_for_ip_block(self):
+        """Verifica se o IP foi bloqueado"""
+        ip_block_indicators = [
+            "//div[contains(text(), 'blocked') or contains(text(), 'bloqueado')]",
+            "//div[contains(text(), 'unavailable in your region') or contains(text(), 'indisponível na sua região')]",
+            "//div[contains(text(), 'access denied') or contains(text(), 'acesso negado')]"
+        ]
+        
+        for indicator in ip_block_indicators:
+            try:
+                elements = self.driver.find_elements(By.XPATH, indicator)
+                if elements and any(e.is_displayed() for e in elements):
+                    return True
+            except:
+                pass
+        
+        # Verifica no HTML da página
+        page_source = self.driver.page_source.lower()
+        ip_terms = ['ip address has been blocked', 'endereço ip foi bloqueado', 
+                    'network has been blocked', 'rede foi bloqueada', 
+                    'access from your location', 'acesso do seu local']
+        
+        if any(term in page_source for term in rate_terms):
+            return True
+            
+        return False
+    
+    def detect_automation_block(self):
+        """Método principal para detectar bloqueios, retorna um DetectionResult"""
+        # Captura um screenshot para análise
+        screenshot_path = self.take_screenshot("detection")
+        
+        # Verifica cada tipo de bloqueio
+        if self.check_for_captcha():
+            result = DetectionResult(
+                is_blocked=True,
+                block_type=AutomationBlockType.CAPTCHA_CHALLENGE,
+                details={"url": self.driver.current_url},
+                screenshot_path=screenshot_path
+            )
+        elif self.check_for_session_issues():
+            result = DetectionResult(
+                is_blocked=True,
+                block_type=AutomationBlockType.SESSION_EXPIRED,
+                details={"url": self.driver.current_url},
+                screenshot_path=screenshot_path
+            )
+        elif self.check_for_rate_limiting():
+            result = DetectionResult(
+                is_blocked=True,
+                block_type=AutomationBlockType.RATE_LIMIT,
+                details={"url": self.driver.current_url},
+                screenshot_path=screenshot_path
+            )
+        elif self.check_for_ip_block():
+            result = DetectionResult(
+                is_blocked=True,
+                block_type=AutomationBlockType.IP_BLOCK,
+                details={"url": self.driver.current_url},
+                screenshot_path=screenshot_path
+            )
+        elif self.check_for_unusual_activity():
+            result = DetectionResult(
+                is_blocked=True,
+                block_type=AutomationBlockType.UNUSUAL_ACTIVITY,
+                details={"url": self.driver.current_url},
+                screenshot_path=screenshot_path
+            )
+        else:
+            # Nenhum bloqueio detectado
+            result = DetectionResult(
+                is_blocked=False,
+                details={"url": self.driver.current_url},
+                screenshot_path=screenshot_path
+            )
+        
+        # Salva o resultado
+        self.last_detection = result
+        self.detection_history.append(result)
+        
+        # Loga o resultado
+        if result.is_blocked:
+            recommendations = result.get_recommendations()
+            print(f"🚨 Bloqueio detectado: {result.block_type.value}")
+            print(f"📋 Recomendações:")
+            for i, rec in enumerate(recommendations, 1):
+                print(f"  {i}. {rec}")
+        
+        return result
+    
+    def analyze_page_elements(self):
+        """Analisa elementos da página para identificar problemas"""
+        try:
+            # Verifica quantos iframes estão presentes (possíveis captchas)
+            iframes = self.driver.find_elements(By.TAG_NAME, "iframe")
+            
+            # Verifica todos os textos de erro visíveis
+            error_elements = self.driver.find_elements(By.XPATH, 
+                "//div[contains(text(), 'erro') or contains(text(), 'error') or " +
+                "contains(text(), 'falha') or contains(text(), 'failed') or " +
+                "contains(@class, 'error') or contains(@class, 'erro')]")
+            
+            visible_errors = []
+            for element in error_elements:
+                if element.is_displayed():
+                    try:
+                        visible_errors.append(element.text)
+                    except:
+                        pass
+            
+            # Verifica formulários escondidos de segurança
+            security_forms = self.driver.find_elements(By.XPATH, 
+                "//form[contains(@action, 'security') or contains(@action, 'captcha') or contains(@action, 'verify')]")
+            
+            # Reúne todos os dados
+            analysis = {
+                "iframes_count": len(iframes),
+                "visible_errors": visible_errors,
+                "security_forms": len(security_forms),
+                "url": self.driver.current_url,
+                "page_title": self.driver.title
+            }
+            
+            return analysis
+            
+        except Exception as e:
+            print(f"⚠️ Erro durante análise de elementos: {e}")
+            return {"error": str(e)}
 
 class TikTokBot:
     def __init__(self, params):
@@ -38,9 +384,23 @@ class TikTokBot:
         self.headless = params.get('headless', False)
         self.wait_time_multiplier = params.get('wait_time_multiplier', 1.0)  # Para ajustar tempos de espera
         
+        # Diretório para debug e screenshots
+        self.debug_dir = params.get('debug_dir', os.path.join(os.getcwd(), 'debug_data'))
+        if not os.path.exists(self.debug_dir):
+            try:
+                os.makedirs(self.debug_dir)
+            except Exception as e:
+                print(f"⚠️ Não foi possível criar diretório de debug: {e}")
+                self.debug_dir = None
+        
         self.driver = None
+        self.detector = None  # Será inicializado após o setup do driver
         self.setup_browser()
-
+        
+        # Inicializa o detector após o setup do driver
+        if self.driver:
+            self.detector = AutomationDetector(self.driver, self.debug_dir)
+            
     def setup_browser(self):
         """Configura o navegador com as opções necessárias para evitar detecção"""
         try:
@@ -229,6 +589,13 @@ class TikTokBot:
             # Espera adaptativa
             self._adaptive_sleep(5)
             
+            # Verifica se já encontramos algum bloqueio
+            if self.detector:
+                detection = self.detector.detect_automation_block()
+                if detection.is_blocked:
+                    print(f"❌ Bloqueio detectado antes mesmo de injetar cookies: {detection.block_type.value}")
+                    return False
+            
             # Adiciona cookies essenciais
             cookies = [
                 {
@@ -279,6 +646,13 @@ class TikTokBot:
             self.driver.get(reload_url)
             self._adaptive_sleep(5)  # Espera adaptativa para recarga
             
+            # Verifica se há bloqueios após recarregar com cookies
+            if self.detector:
+                detection = self.detector.detect_automation_block()
+                if detection.is_blocked:
+                    print(f"❌ Bloqueio detectado após injetar cookies: {detection.block_type.value}")
+                    return False
+            
             # Verifica se os cookies foram adicionados corretamente
             actual_cookies = self.driver.get_cookies()
             session_cookies = [c for c in actual_cookies if c['name'] in ['sessionid', 'sessionid_ss', 'sid_tt']]
@@ -314,6 +688,16 @@ class TikTokBot:
                 self.driver.get('https://www.tiktok.com')
                 self._adaptive_sleep(3)
                 
+                # Verifica bloqueios na página inicial
+                if self.detector:
+                    detection = self.detector.detect_automation_block()
+                    if detection.is_blocked:
+                        print(f"❌ Bloqueio detectado na página inicial: {detection.block_type.value}")
+                        # Realiza análise adicional da página
+                        analysis = self.detector.analyze_page_elements()
+                        print(f"📊 Análise de página: {analysis}")
+                        return False
+                
                 # Enriquece o histórico de navegação, simulando comportamento humano
                 profile_urls = [
                     'https://www.tiktok.com/foryou',
@@ -326,6 +710,13 @@ class TikTokBot:
                     print(f"🔍 Visitando URL para enriquecer histórico: {url}")
                     self.driver.get(url)
                     self._adaptive_sleep(2)
+                    
+                    # Verifica bloqueios
+                    if self.detector:
+                        detection = self.detector.detect_automation_block()
+                        if detection.is_blocked:
+                            print(f"❌ Bloqueio detectado durante navegação: {detection.block_type.value}")
+                            return False
                     
                     # Simula alguma interação aleatória
                     try:
@@ -345,10 +736,23 @@ class TikTokBot:
                 self.driver.get('https://www.tiktok.com/upload?lang=pt-BR')
                 self._adaptive_sleep(5)
                 
+                # Verifica bloqueios na página de upload
+                if self.detector:
+                    detection = self.detector.detect_automation_block()
+                    if detection.is_blocked:
+                        print(f"❌ Bloqueio detectado na página de upload: {detection.block_type.value}")
+                        return False
+                
                 # Se chegamos aqui e não fomos redirecionados para login
                 current_url = self.driver.current_url.lower()
                 if 'login' in current_url or 'sign-in' in current_url:
                     print("❌ Redirecionado para página de login")
+                    
+                    # Análise adicional
+                    if self.detector:
+                        analysis = self.detector.analyze_page_elements()
+                        print(f"📊 Análise da página de login: {analysis}")
+                    
                     return False
                 
                 # Verifica se elementos específicos da página de upload estão presentes
@@ -375,6 +779,12 @@ class TikTokBot:
                     return True
                 
                 print("❌ Não foi possível confirmar acesso à página de upload")
+                
+                # Análise adicional
+                if self.detector:
+                    analysis = self.detector.analyze_page_elements()
+                    print(f"📊 Análise final da página: {analysis}")
+                
                 return False
                 
             except Exception as nav_error:
@@ -894,10 +1304,23 @@ class TikTokBot:
                 self.driver.get('https://www.tiktok.com/upload?lang=pt-BR')
                 self._adaptive_sleep(7)  # Espera maior para carregamento completo
                 
+                # Verifica bloqueios na página de upload
+                if self.detector:
+                    detection = self.detector.detect_automation_block()
+                    if detection.is_blocked:
+                        print(f"❌ Bloqueio detectado ao acessar página de upload: {detection.block_type.value}")
+                        return False
+                
                 # Verifica se estamos realmente na página de upload
                 current_url = self.driver.current_url.lower()
                 if 'login' in current_url or 'sign-in' in current_url:
                     print("❌ Redirecionado para página de login durante tentativa de upload")
+                    
+                    # Análise adicional da página de login
+                    if self.detector:
+                        analysis = self.detector.analyze_page_elements()
+                        print(f"📊 Análise da página de login: {analysis}")
+                    
                     return False
                 
                 # Procura o elemento de input do arquivo com múltiplas estratégias
@@ -1077,16 +1500,16 @@ class TikTokBot:
                     
             except Exception as e:
                 print(f"❌ Erro durante o processo de postagem: {e}")
+                
+                # Captura diagnóstico em caso de erro
+                if self.detector:
+                    print("📋 Executando diagnóstico final após erro...")
+                    detection = self.detector.detect_automation_block()
+                    analysis = self.detector.analyze_page_elements()
+                    print(f"📊 Análise final da página: {analysis}")
+                
                 return False
-            finally:
-                # Limpa o arquivo temporário
-                try:
-                    if video_path and os.path.exists(video_path):
-                        os.remove(video_path)
-                        print(f"✅ Arquivo temporário removido: {video_path}")
-                except:
-                    pass
-                    
+                
         except Exception as e:
             print(f"❌ Erro geral no processo de postagem: {e}")
             return False

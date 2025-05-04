@@ -1,6 +1,6 @@
 # TikTok Poster API
 
-API para automação de postagem de vídeos no TikTok, projetada para funcionar em ambientes de servidor.
+API para automação de postagem de vídeos no TikTok, projetada para funcionar em ambientes de servidor. Agora com sistema inteligente de detecção de bloqueios e diagnóstico.
 
 ## Requisitos
 
@@ -82,6 +82,8 @@ python api.py
 
 ### Endpoint principal: POST /post-video
 
+Endpoint para postar vídeos no TikTok.
+
 Exemplo de payload:
 
 ```json
@@ -96,7 +98,8 @@ Exemplo de payload:
   "headless": true,
   "wait_time_multiplier": 1.5,
   "use_proxy": false,
-  "proxy": null
+  "proxy": null,
+  "save_diagnostics": true
 }
 ```
 
@@ -114,10 +117,88 @@ Exemplo de payload:
 - `wait_time_multiplier`: Multiplicador de tempo de espera (útil para servidores com latência)
 - `use_proxy`: Se deve usar proxy
 - `proxy`: URL do proxy (ex: "http://user:pass@host:port")
+- `save_diagnostics`: Se deve salvar screenshots e dados de diagnóstico
+
+### NOVO! Endpoint de diagnóstico: POST /diagnose
+
+Use este endpoint para verificar se sua sessão é válida e diagnosticar problemas de bloqueio sem tentar postar um vídeo.
+
+Exemplo de payload:
+
+```json
+{
+  "session_id": "sua_session_id_do_tiktok",
+  "sid_tt": "seu_sid_tt_opcional",
+  "headless": false,
+  "use_proxy": false,
+  "proxy": null,
+  "wait_time_multiplier": 1.2
+}
+```
+
+A resposta incluirá:
+- Resultado de cada etapa de verificação
+- Screenshots codificados em base64 (se disponíveis)
+- Análise da página HTML
+- Tipo de bloqueio detectado (se houver)
+- Recomendações específicas para resolver o problema
 
 ### Endpoint de verificação: GET /health
 
 Use para verificar se a API está funcionando e obter informações sobre o ambiente.
+
+## Sistema de Detecção de Bloqueios
+
+A API agora inclui um sofisticado sistema de detecção de bloqueios que pode identificar:
+
+- **Desafios CAPTCHA**: Quando o TikTok exige verificação humana
+- **Bloqueios de Sessão**: Quando os cookies de sessão expiraram ou foram invalidados
+- **Limitação de Taxa (Rate Limiting)**: Quando muitas solicitações foram feitas em pouco tempo
+- **Bloqueios de IP**: Quando o TikTok bloqueia o IP do servidor
+- **Detecção de Automação**: Quando o TikTok detecta que é um bot
+- **Atividade Suspeita**: Quando o comportamento é considerado anormal
+
+Para cada tipo de bloqueio, o sistema fornece recomendações específicas para resolver o problema.
+
+### Resposta de Diagnóstico
+
+Exemplo de resposta de diagnóstico:
+
+```json
+{
+  "status": "blocked",
+  "timestamp": "2023-05-20T14:30:45.123456",
+  "steps": [
+    {
+      "step": "inject_session",
+      "success": true,
+      "is_blocked": false
+    },
+    {
+      "step": "test_login",
+      "success": false,
+      "is_blocked": true,
+      "block_type": "captcha_challenge",
+      "details": {"url": "https://www.tiktok.com/captcha?..."}
+    }
+  ],
+  "screenshots": [...],
+  "is_blocked": true,
+  "block_type": "captcha_challenge",
+  "recommendations": [
+    "Use um proxy residencial diferente",
+    "Reduza a frequência de solicitações",
+    "Tente uma sessão mais recente/nova"
+  ],
+  "page_analysis": {
+    "iframes_count": 2,
+    "visible_errors": [],
+    "security_forms": 1,
+    "url": "https://www.tiktok.com/captcha?...",
+    "page_title": "Security Verification"
+  }
+}
+```
 
 ## Solução de problemas
 
@@ -143,12 +224,18 @@ Verifique se todas as dependências do Chrome estão instaladas:
 sudo apt-get install -y fonts-liberation libasound2 libatk-bridge2.0-0 libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 libexpat1 libfontconfig1 libgbm1 libgcc1 libglib2.0-0 libgtk-3-0 libnspr4 libnss3 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxss1 libxtst6 lsb-release xdg-utils
 ```
 
-### Problemas com a API
+### Problemas de detectação de automação
 
-Verifique os logs para mais detalhes sobre erros específicos.
+Se você estiver enfrentando bloqueios frequentes:
+
+1. **Use o endpoint `/diagnose` primeiro**: Identifique o tipo de bloqueio antes de tentar postar
+2. **Utilize proxies residenciais**: IPs de datacenters são mais facilmente detectados
+3. **Varie o tempo entre requisições**: Evite fazer muitas solicitações em sequência rápida
+4. **Obtenha cookies de sessão recentes**: Cookies mais antigos têm maior probabilidade de serem rejeitados
 
 ## Notas
 
 - A API usa técnicas avançadas para evitar detecção de automação
 - Cookie de sessão do TikTok geralmente expira após alguns dias
-- Use proxies residenciais para melhorar as taxas de sucesso em servidores 
+- Use proxies residenciais para melhorar as taxas de sucesso em servidores
+- Os arquivos de diagnóstico são salvos na pasta `debug_data` 
